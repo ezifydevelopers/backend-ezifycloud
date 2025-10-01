@@ -1,0 +1,160 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  manager
+  employee
+}
+
+enum LeaveType {
+  annual
+  sick
+  casual
+  maternity
+  paternity
+  emergency
+}
+
+enum LeaveStatus {
+  pending
+  approved
+  rejected
+  escalated
+}
+
+enum HalfDayPeriod {
+  morning
+  afternoon
+}
+
+model User {
+  id              String    @id @default(uuid())
+  name            String
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  role            UserRole
+  department      String?
+  managerId       String?   @map("manager_id")
+  profilePicture  String?   @map("profile_picture")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  manager         User?     @relation("UserManager", fields: [managerId], references: [id])
+  subordinates    User[]    @relation("UserManager")
+  leaveRequests   LeaveRequest[]
+  approvedLeaves  LeaveRequest[] @relation("ApprovedLeaves")
+  leaveBalances   LeaveBalance[]
+  auditLogs       AuditLog[]
+
+  @@map("users")
+}
+
+model LeaveRequest {
+  id              String         @id @default(uuid())
+  userId          String         @map("user_id")
+  leaveType       LeaveType      @map("leave_type")
+  startDate       DateTime       @map("start_date") @db.Date
+  endDate         DateTime       @map("end_date") @db.Date
+  totalDays       Decimal        @map("total_days") @db.Decimal(3, 1)
+  reason          String
+  status          LeaveStatus    @default(pending)
+  submittedAt     DateTime       @default(now()) @map("submitted_at")
+  approvedBy      String?        @map("approved_by")
+  approvedAt      DateTime?      @map("approved_at")
+  rejectedReason  String?        @map("rejected_reason")
+  isHalfDay       Boolean        @default(false) @map("is_half_day")
+  halfDayPeriod   HalfDayPeriod? @map("half_day_period")
+  comments        String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  user            User           @relation(fields: [userId], references: [id])
+  approver        User?          @relation("ApprovedLeaves", fields: [approvedBy], references: [id])
+  documents       LeaveDocument[]
+
+  @@map("leave_requests")
+}
+
+model LeaveBalance {
+  id              String  @id @default(uuid())
+  userId          String  @map("user_id")
+  year            Int
+  annualTotal     Int     @default(25) @map("annual_total")
+  annualUsed      Int     @default(0) @map("annual_used")
+  annualRemaining Int     @map("annual_remaining") @default(0)
+  sickTotal       Int     @default(10) @map("sick_total")
+  sickUsed        Int     @default(0) @map("sick_used")
+  sickRemaining   Int     @map("sick_remaining") @default(0)
+  casualTotal     Int     @default(8) @map("casual_total")
+  casualUsed      Int     @default(0) @map("casual_used")
+  casualRemaining Int     @map("casual_remaining") @default(0)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user            User    @relation(fields: [userId], references: [id])
+
+  @@unique([userId, year])
+  @@map("leave_balances")
+}
+
+model LeavePolicy {
+  id                    String  @id @default(uuid())
+  leaveType             String  @unique @map("leave_type")
+  totalDaysPerYear      Int     @map("total_days_per_year")
+  canCarryForward       Boolean @default(false) @map("can_carry_forward")
+  maxCarryForwardDays   Int?    @map("max_carry_forward_days")
+  requiresApproval      Boolean @default(true) @map("requires_approval")
+  allowHalfDay          Boolean @default(true) @map("allow_half_day")
+  description           String?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("leave_policies")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  userName    String   @map("user_name")
+  action      String
+  targetId    String?  @map("target_id")
+  targetType  String?  @map("target_type")
+  details     String?
+  ipAddress   String?  @map("ip_address") @db.Inet
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model LeaveDocument {
+  id              String        @id @default(uuid())
+  leaveRequestId  String        @map("leave_request_id")
+  fileName        String        @map("file_name")
+  filePath        String        @map("file_path")
+  fileSize        Int           @map("file_size")
+  mimeType        String        @map("mime_type")
+  uploadedAt      DateTime      @default(now()) @map("uploaded_at")
+
+  // Relations
+  leaveRequest    LeaveRequest  @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+
+  @@map("leave_documents")
+}
