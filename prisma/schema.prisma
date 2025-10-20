@@ -1,0 +1,353 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  manager
+  employee
+}
+
+enum LeaveType {
+  annual
+  sick
+  casual
+  maternity
+  paternity
+  emergency
+}
+
+enum LeaveStatus {
+  pending
+  approved
+  rejected
+  escalated
+}
+
+enum HalfDayPeriod {
+  morning
+  afternoon
+}
+
+enum HolidayType {
+  public
+  company
+  religious
+  national
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  late
+  half_day
+  on_leave
+}
+
+model User {
+  id              String    @id @default(uuid())
+  name            String
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  role            UserRole
+  department      String?
+  managerId       String?   @map("manager_id")
+  profilePicture  String?   @map("profile_picture")
+  phone           String?
+  bio             String?
+  address         String?
+  emergencyContact String?
+  emergencyPhone  String?
+  isActive        Boolean   @default(true) @map("is_active")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  manager         User?     @relation("UserManager", fields: [managerId], references: [id])
+  subordinates    User[]    @relation("UserManager")
+  leaveRequests   LeaveRequest[]
+  approvedLeaves  LeaveRequest[] @relation("ApprovedLeaves")
+  leaveBalances   LeaveBalance[]
+  auditLogs       AuditLog[]
+  createdPolicies LeavePolicy[] @relation("CreatedPolicies")
+  createdHolidays Holiday[] @relation("CreatedHolidays")
+  attendanceRecords AttendanceRecord[]
+  createdAttendancePolicies AttendancePolicy[] @relation("CreatedAttendancePolicies")
+  employeeSalary EmployeeSalary[]
+  monthlySalaries MonthlySalary[]
+  approvedSalaries MonthlySalary[] @relation("ApprovedSalaries")
+      
+  @@map("users")
+}
+
+model LeaveRequest {
+  id              String         @id @default(uuid())
+  userId          String         @map("user_id")
+  leaveType       LeaveType      @map("leave_type")
+  startDate       DateTime       @map("start_date") @db.Date
+  endDate         DateTime       @map("end_date") @db.Date
+  totalDays       Decimal        @map("total_days") @db.Decimal(3, 1)
+  reason          String
+  status          LeaveStatus    @default(pending)
+  submittedAt     DateTime       @default(now()) @map("submitted_at")
+  approvedBy      String?        @map("approved_by")
+  approvedAt      DateTime?      @map("approved_at")
+  rejectedReason  String?        @map("rejected_reason")
+  isHalfDay       Boolean        @default(false) @map("is_half_day")
+  halfDayPeriod   HalfDayPeriod? @map("half_day_period")
+  comments        String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  user            User           @relation(fields: [userId], references: [id])
+  approver        User?          @relation("ApprovedLeaves", fields: [approvedBy], references: [id])
+  documents       LeaveDocument[]
+  salaryDeductions SalaryDeduction[]
+
+  @@map("leave_requests")
+}
+
+model LeaveBalance {
+  id              String  @id @default(uuid())
+  userId          String  @map("user_id")
+  year            Int
+  annualTotal     Int     @default(25) @map("annual_total")
+  annualUsed      Int     @default(0) @map("annual_used")
+  annualRemaining Int     @map("annual_remaining") @default(0)
+  sickTotal       Int     @default(10) @map("sick_total")
+  sickUsed        Int     @default(0) @map("sick_used")
+  sickRemaining   Int     @map("sick_remaining") @default(0)
+  casualTotal     Int     @default(8) @map("casual_total")
+  casualUsed      Int     @default(0) @map("casual_used")
+  casualRemaining Int     @map("casual_remaining") @default(0)
+  maternityTotal  Int     @default(90) @map("maternity_total")
+  maternityUsed   Int     @default(0) @map("maternity_used")
+  maternityRemaining Int  @map("maternity_remaining") @default(0)
+  paternityTotal  Int     @default(15) @map("paternity_total")
+  paternityUsed   Int     @default(0) @map("paternity_used")
+  paternityRemaining Int  @map("paternity_remaining") @default(0)
+  emergencyTotal  Int     @default(5) @map("emergency_total")
+  emergencyUsed   Int     @default(0) @map("emergency_used")
+  emergencyRemaining Int  @map("emergency_remaining") @default(0)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user            User    @relation(fields: [userId], references: [id])
+
+  @@unique([userId, year])
+  @@map("leave_balances")
+}
+
+model LeavePolicy {
+  id                    String  @id @default(uuid())
+  leaveType             String  @unique @map("leave_type")
+  totalDaysPerYear      Int     @map("total_days_per_year")
+  canCarryForward       Boolean @default(false) @map("can_carry_forward")
+  maxCarryForwardDays   Int?    @map("max_carry_forward_days")
+  requiresApproval      Boolean @default(true) @map("requires_approval")
+  allowHalfDay          Boolean @default(true) @map("allow_half_day")
+  description           String?
+  isActive              Boolean @default(true) @map("is_active")
+  createdBy             String  @map("created_by")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  creator               User    @relation("CreatedPolicies", fields: [createdBy], references: [id])
+
+  @@map("leave_policies")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  userName    String   @map("user_name")
+  action      String
+  targetId    String?  @map("target_id")
+  targetType  String?  @map("target_type")
+  details     String?
+  ipAddress   String?  @map("ip_address") @db.Inet
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model LeaveDocument {
+  id              String        @id @default(uuid())
+  leaveRequestId  String        @map("leave_request_id")
+  fileName        String        @map("file_name")
+  filePath        String        @map("file_path")
+  fileSize        Int           @map("file_size")
+  mimeType        String        @map("mime_type")
+  uploadedAt      DateTime      @default(now()) @map("uploaded_at")
+
+  // Relations
+  leaveRequest    LeaveRequest  @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+
+  @@map("leave_documents")
+}
+
+model Holiday {
+  id          String      @id @default(uuid())
+  name        String
+  description String?
+  date        DateTime
+  type        HolidayType
+  isRecurring Boolean     @default(false) @map("is_recurring")
+  isActive    Boolean     @default(true) @map("is_active")
+  createdBy   String      @map("created_by")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  creator     User        @relation("CreatedHolidays", fields: [createdBy], references: [id])
+
+  @@unique([name, date], name: "name_date")
+  @@map("holidays")
+}
+
+model AttendanceRecord {
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  date            DateTime         @db.Date
+  checkInTime     DateTime?        @map("check_in_time")
+  checkOutTime    DateTime?        @map("check_out_time")
+  status          AttendanceStatus @default(present)
+  hoursWorked     Decimal          @default(0) @map("hours_worked") @db.Decimal(4, 2)
+  overtimeHours   Decimal          @default(0) @map("overtime_hours") @db.Decimal(4, 2)
+  notes           String?
+  isHoliday       Boolean          @default(false) @map("is_holiday")
+  isWeekend       Boolean          @default(false) @map("is_weekend")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([date])
+  @@index([status])
+  @@map("attendance_records")
+}
+
+model AttendancePolicy {
+  id                      String    @id @default(uuid())
+  name                    String
+  workingHoursPerDay      Decimal   @default(8.00) @map("working_hours_per_day") @db.Decimal(4, 2)
+  lateThresholdMinutes    Int       @default(15) @map("late_threshold_minutes")
+  overtimeThresholdHours  Decimal   @default(0.00) @map("overtime_threshold_hours") @db.Decimal(4, 2)
+  allowFlexibleHours      Boolean   @default(false) @map("allow_flexible_hours")
+  requireCheckIn          Boolean   @default(true) @map("require_check_in")
+  requireCheckOut         Boolean   @default(true) @map("require_check_out")
+  isActive                Boolean   @default(true) @map("is_active")
+  createdBy               String    @map("created_by")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  creator                 User      @relation("CreatedAttendancePolicies", fields: [createdBy], references: [id])
+
+  @@map("attendance_policies")
+}
+
+enum SalaryStatus {
+  draft
+  calculated
+  approved
+  paid
+  cancelled
+}
+
+enum DeductionType {
+  leave_deduction
+  tax_deduction
+  other_deduction
+  bonus
+  overtime
+}
+
+model EmployeeSalary {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  baseSalary      Decimal       @map("base_salary") @db.Decimal(10, 2)
+  hourlyRate      Decimal?      @map("hourly_rate") @db.Decimal(8, 2)
+  currency        String        @default("USD")
+  effectiveDate   DateTime      @map("effective_date") @db.Date
+  endDate         DateTime?     @map("end_date") @db.Date
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monthlySalaries MonthlySalary[]
+
+  @@index([userId])
+  @@index([effectiveDate])
+  @@map("employee_salaries")
+}
+
+model MonthlySalary {
+  id                String        @id @default(uuid())
+  employeeSalaryId  String        @map("employee_salary_id")
+  userId            String        @map("user_id")
+  year              Int
+  month             Int
+  baseSalary        Decimal       @map("base_salary") @db.Decimal(10, 2)
+  grossSalary       Decimal       @map("gross_salary") @db.Decimal(10, 2)
+  totalDeductions   Decimal       @default(0) @map("total_deductions") @db.Decimal(10, 2)
+  netSalary         Decimal       @map("net_salary") @db.Decimal(10, 2)
+  status            SalaryStatus  @default(draft)
+  calculatedAt      DateTime?     @map("calculated_at")
+  approvedAt        DateTime?     @map("approved_at")
+  paidAt            DateTime?     @map("paid_at")
+  approvedBy        String?       @map("approved_by")
+  notes             String?
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  employeeSalary    EmployeeSalary @relation(fields: [employeeSalaryId], references: [id], onDelete: Cascade)
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approver          User?         @relation("ApprovedSalaries", fields: [approvedBy], references: [id])
+  deductions        SalaryDeduction[]
+
+  @@unique([userId, year, month])
+  @@index([year, month])
+  @@index([status])
+  @@map("monthly_salaries")
+}
+
+model SalaryDeduction {
+  id              String        @id @default(uuid())
+  monthlySalaryId String        @map("monthly_salary_id")
+  type            DeductionType
+  description     String
+  amount          Decimal       @db.Decimal(10, 2)
+  leaveRequestId  String?       @map("leave_request_id")
+  isTaxable       Boolean       @default(true) @map("is_taxable")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  monthlySalary   MonthlySalary @relation(fields: [monthlySalaryId], references: [id], onDelete: Cascade)
+  leaveRequest    LeaveRequest? @relation(fields: [leaveRequestId], references: [id])
+
+  @@index([monthlySalaryId])
+  @@index([type])
+  @@map("salary_deductions")
+}
