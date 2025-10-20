@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../../lib/prisma';
 import { ApiResponse } from '../../types';
+import { APP_CONFIG } from '../../config/app';
 import { loginSchema, registerSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema } from './schema';
 
 // Login controller
@@ -73,15 +74,14 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
     });
 
     // Generate JWT token
-    const jwtSecret = process.env.JWT_SECRET || 'fallback-secret';
     const token = jwt.sign(
       { 
         userId: user.id, 
         email: user.email, 
         role: user.role 
       },
-      jwtSecret,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' } as jwt.SignOptions
+      APP_CONFIG.JWT.SECRET,
+      { expiresIn: APP_CONFIG.JWT.EXPIRES_IN } as jwt.SignOptions
     );
 
     // Remove password from response

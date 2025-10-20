@@ -4,13 +4,11 @@
 export const APP_CONFIG = {
   // Server Configuration
   SERVER: {
-    PORT: parseInt(process.env.PORT || '5000'),
+    PORT: parseInt(process.env.PORT || '9001'),
     NODE_ENV: process.env.NODE_ENV || 'development',
-    CORS_ORIGINS: [
-      'http://localhost:8080',
-      'http://localhost:8081', 
-      'http://localhost:5173'
-    ] as string[],
+    CORS_ORIGINS: process.env.CORS_ORIGIN 
+      ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+      : ['http://localhost:3000'],
   },
 
   // Database Configuration

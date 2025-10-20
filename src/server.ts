@@ -1,11 +1,16 @@
 import dotenv from 'dotenv';
 import createApp from './app';
 import prisma from './lib/prisma';
+import { APP_CONFIG } from './config/app';
+import { validateEnvironment } from './lib/envValidation';
 
 // Load environment variables
 dotenv.config();
 
-const PORT = process.env.PORT || 5000;
+// Validate environment variables before starting
+validateEnvironment();
+
+const PORT = APP_CONFIG.SERVER.PORT;
 
 // Start server
 const startServer = async (): Promise<void> => {
