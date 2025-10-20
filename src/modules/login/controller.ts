@@ -66,6 +66,12 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       return;
     }
 
+    // Update lastLogin timestamp
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() }
+    });
+
     // Generate JWT token
     const jwtSecret = process.env.JWT_SECRET || 'fallback-secret';
     const token = jwt.sign(
