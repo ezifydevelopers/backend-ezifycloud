@@ -6,5 +6,7 @@ export declare class SalaryController {
     static approveMonthlySalary(req: Request, res: Response): Promise<void>;
     static getSalaryStatistics(req: Request, res: Response): Promise<void>;
     static calculateEmployeeSalary(req: Request, res: Response): Promise<void>;
+    static createEmployeeSalary(req: Request, res: Response): Promise<void>;
+    static updateEmployeeSalary(req: Request, res: Response): Promise<void>;
 }
 //# sourceMappingURL=salaryController.d.ts.map

@@ -48,10 +48,14 @@ export const errorHandler = (
   // Send error response
   res.status(statusCode).json({
     success: false,
-    error: {
-      message,
-      statusCode,
-      ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-    }
+    message: message || 'An error occurred',
+    error: message || 'An error occurred',
+    ...(process.env.NODE_ENV === 'development' && { 
+      details: {
+        stack: err.stack,
+        name: err.name,
+        statusCode
+      }
+    })
   });
 };

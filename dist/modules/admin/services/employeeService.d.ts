@@ -7,12 +7,10 @@ export declare class EmployeeService {
         email: string;
         phone?: string;
         department: string;
-        position: string;
         role: 'admin' | 'manager' | 'employee';
         managerId?: string;
         password: string;
         bio?: string;
-        avatar?: string;
     }): Promise<Employee>;
     static updateEmployee(id: string, updateData: {
         name?: string;
@@ -25,7 +23,11 @@ export declare class EmployeeService {
         bio?: string;
         avatar?: string;
     }): Promise<Employee>;
-    static deleteEmployee(id: string): Promise<void>;
+    static deleteEmployee(id: string): Promise<{
+        success: boolean;
+        message: string;
+        employee?: any;
+    }>;
     static toggleEmployeeStatus(id: string, isActive: boolean): Promise<Employee>;
     static bulkUpdateEmployeeStatus(employeeIds: string[], isActive: boolean): Promise<{
         updated: number;

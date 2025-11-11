@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EmployeeDashboardService = void 0;
 const prisma_1 = __importDefault(require("../../../lib/prisma"));
+const app_1 = require("../../../config/app");
 class EmployeeDashboardService {
     static async getDashboardStats(employeeId, dateRange) {
         try {
@@ -16,7 +17,7 @@ class EmployeeDashboardService {
             const upcomingHolidays = await this.getUpcomingHolidays(5);
             const teamInfo = await this.getTeamInfo(employeeId);
             const performance = await this.getPerformanceMetrics(employeeId);
-            const notifications = await this.getNotifications(employeeId, 10);
+            const notifications = await this.getNotifications(employeeId, app_1.APP_CONFIG.DASHBOARD.DEFAULT_LIMITS.NOTIFICATIONS);
             const quickStats = await this.getQuickStats(employeeId, startDate, endDate);
             const fallbackData = {
                 personalInfo: personalInfo || {
@@ -29,13 +30,7 @@ class EmployeeDashboardService {
                     joinDate: new Date(),
                     isActive: true
                 },
-                leaveBalance: leaveBalance || {
-                    annual: { total: 25, used: 0, remaining: 25 },
-                    sick: { total: 10, used: 0, remaining: 10 },
-                    casual: { total: 8, used: 0, remaining: 8 },
-                    emergency: { total: 5, used: 0, remaining: 5 },
-                    total: { totalDays: 48, usedDays: 0, remainingDays: 48, overallUtilization: 0 }
-                },
+                leaveBalance: leaveBalance || await EmployeeDashboardService.getDynamicLeaveBalance(employeeId),
                 recentRequests: recentRequests || [],
                 upcomingHolidays: upcomingHolidays || [],
                 teamInfo: teamInfo || {
@@ -52,7 +47,7 @@ class EmployeeDashboardService {
                     teamwork: 92,
                     communication: 85,
                     lastReviewDate: new Date(),
-                    nextReviewDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+                    nextReviewDate: new Date(Date.now() + app_1.APP_CONFIG.TIME.DAYS.REVIEW_PERIOD * app_1.APP_CONFIG.TIME.MILLISECONDS.DAY),
                     goals: [],
                     achievements: []
                 },
@@ -110,6 +105,54 @@ class EmployeeDashboardService {
             throw new Error('Failed to fetch personal information');
         }
     }
+    static async getDynamicLeaveBalance(employeeId) {
+        try {
+            const currentYear = new Date().getFullYear();
+            const leavePolicies = await prisma_1.default.leavePolicy.findMany({
+                where: {
+                    isActive: true
+                },
+                select: {
+                    leaveType: true,
+                    totalDaysPerYear: true
+                }
+            });
+            if (leavePolicies.length === 0) {
+                return {
+                    total: { totalDays: 0, usedDays: 0, remainingDays: 0, pendingDays: 0, overallUtilization: 0 }
+                };
+            }
+            const dynamicLeaveBalance = {};
+            let totalDays = 0;
+            for (const policy of leavePolicies) {
+                dynamicLeaveBalance[policy.leaveType] = {
+                    total: policy.totalDaysPerYear,
+                    used: 0,
+                    remaining: policy.totalDaysPerYear,
+                    pending: 0,
+                    utilizationRate: 0
+                };
+                totalDays += policy.totalDaysPerYear;
+            }
+            const total = {
+                totalDays,
+                usedDays: 0,
+                remainingDays: totalDays,
+                pendingDays: 0,
+                overallUtilization: 0
+            };
+            return {
+                ...dynamicLeaveBalance,
+                total
+            };
+        }
+        catch (error) {
+            console.error('Error getting dynamic leave balance:', error);
+            return {
+                total: { totalDays: 0, usedDays: 0, remainingDays: 0, pendingDays: 0, overallUtilization: 0 }
+            };
+        }
+    }
     static async getLeaveBalance(employeeId, startDate, endDate) {
         try {
             const currentYear = new Date().getFullYear();
@@ -156,50 +199,22 @@ class EmployeeDashboardService {
                     totalDays: true
                 }
             });
-            const pendingDays = {
-                annual: 0,
-                sick: 0,
-                casual: 0,
-                emergency: 0
-            };
-            const approvedDays = {
-                annual: 0,
-                sick: 0,
-                casual: 0,
-                emergency: 0
-            };
+            const pendingDays = {};
+            const approvedDays = {};
+            for (const [leaveType] of policyMap) {
+                pendingDays[leaveType] = 0;
+                approvedDays[leaveType] = 0;
+            }
             pendingRequests.forEach(request => {
                 const days = Number(request.totalDays);
-                switch (request.leaveType) {
-                    case 'annual':
-                        pendingDays.annual += days;
-                        break;
-                    case 'sick':
-                        pendingDays.sick += days;
-                        break;
-                    case 'casual':
-                        pendingDays.casual += days;
-                        break;
-                    case 'emergency':
-                        pendingDays.emergency += days;
-                        break;
+                if (pendingDays.hasOwnProperty(request.leaveType)) {
+                    pendingDays[request.leaveType] += days;
                 }
             });
             approvedRequests.forEach(request => {
                 const days = Number(request.totalDays);
-                switch (request.leaveType) {
-                    case 'annual':
-                        approvedDays.annual += days;
-                        break;
-                    case 'sick':
-                        approvedDays.sick += days;
-                        break;
-                    case 'casual':
-                        approvedDays.casual += days;
-                        break;
-                    case 'emergency':
-                        approvedDays.emergency += days;
-                        break;
+                if (approvedDays.hasOwnProperty(request.leaveType)) {
+                    approvedDays[request.leaveType] += days;
                 }
             });
             const dynamicLeaveBalance = {};
@@ -335,7 +350,7 @@ class EmployeeDashboardService {
                     email: true,
                     profilePicture: true
                 },
-                take: 10
+                take: app_1.APP_CONFIG.DASHBOARD.DEFAULT_LIMITS.RECENT_ACTIVITIES
             });
             const manager = await prisma_1.default.user.findUnique({
                 where: { id: employee.managerId || '' },
@@ -370,7 +385,7 @@ class EmployeeDashboardService {
             });
             return {
                 teamSize: teamMembers.length + 1,
-                managerName: manager?.name || 'No Manager',
+                managerName: manager?.name || app_1.APP_CONFIG.DASHBOARD.DEFAULT_VALUES.MANAGER_NAME,
                 managerEmail: manager?.email || '',
                 department: employee.department || 'Unassigned',
                 teamMembers: teamMembersWithLeaveStatus
@@ -397,7 +412,7 @@ class EmployeeDashboardService {
                     id: '1',
                     title: 'Complete Project Alpha',
                     description: 'Finish the main project deliverables',
-                    targetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                    targetDate: new Date(Date.now() + app_1.APP_CONFIG.TIME.DAYS.PROJECT_DAYS * app_1.APP_CONFIG.TIME.MILLISECONDS.DAY),
                     progress: 75,
                     status: 'in_progress',
                     createdAt: new Date(),
@@ -407,7 +422,7 @@ class EmployeeDashboardService {
                     id: '2',
                     title: 'Improve Team Collaboration',
                     description: 'Enhance communication with team members',
-                    targetDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+                    targetDate: new Date(Date.now() + app_1.APP_CONFIG.TIME.DAYS.TRAINING_DAYS * app_1.APP_CONFIG.TIME.MILLISECONDS.DAY),
                     progress: 40,
                     status: 'in_progress',
                     createdAt: new Date(),
@@ -420,7 +435,7 @@ class EmployeeDashboardService {
                     title: 'Employee of the Month',
                     description: 'Recognized for outstanding performance',
                     type: 'award',
-                    date: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
+                    date: new Date(Date.now() - app_1.APP_CONFIG.TIME.DAYS.ACHIEVEMENT_DAYS * app_1.APP_CONFIG.TIME.MILLISECONDS.DAY),
                     issuer: 'HR Department',
                     badge: 'https://example.com/badge.png'
                 },
@@ -429,7 +444,7 @@ class EmployeeDashboardService {
                     title: 'Project Completion Certificate',
                     description: 'Successfully completed major project',
                     type: 'certification',
-                    date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+                    date: new Date(Date.now() - app_1.APP_CONFIG.TIME.DAYS.REVIEW_PERIOD * app_1.APP_CONFIG.TIME.MILLISECONDS.DAY),
                     issuer: 'Project Manager'
                 }
             ];
@@ -450,7 +465,7 @@ class EmployeeDashboardService {
             throw new Error('Failed to fetch performance metrics');
         }
     }
-    static async getNotifications(employeeId, limit = 10) {
+    static async getNotifications(employeeId, limit = app_1.APP_CONFIG.DASHBOARD.DEFAULT_LIMITS.NOTIFICATIONS) {
         try {
             const notifications = [
                 {
@@ -459,7 +474,7 @@ class EmployeeDashboardService {
                     message: 'Your annual leave request has been approved',
                     type: 'success',
                     isRead: false,
-                    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+                    createdAt: new Date(Date.now() - app_1.APP_CONFIG.TIME.DAYS.NOTIFICATION_DAYS * app_1.APP_CONFIG.TIME.MILLISECONDS.HOUR),
                     actionUrl: '/employee/history'
                 },
                 {

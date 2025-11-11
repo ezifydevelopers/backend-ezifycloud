@@ -87,5 +87,7 @@ router.post('/salaries/generate', (0, validation_1.validateRequest)(schemas_1.ad
 router.put('/salaries/:salaryId/approve', (0, validation_1.validateRequest)(schemas_1.adminSchemas.approveSalarySchema), salaryController_1.SalaryController.approveMonthlySalary);
 router.get('/salaries/statistics', (0, validation_1.validateQuery)(schemas_1.adminSchemas.salaryQuery), salaryController_1.SalaryController.getSalaryStatistics);
 router.get('/salaries/calculate/:userId', (0, validation_1.validateQuery)(schemas_1.adminSchemas.salaryQuery), salaryController_1.SalaryController.calculateEmployeeSalary);
+router.post('/salaries/employees', (0, validation_1.validateRequest)(schemas_1.adminSchemas.createEmployeeSalarySchema), salaryController_1.SalaryController.createEmployeeSalary);
+router.put('/salaries/employees/:salaryId', (0, validation_1.validateRequest)(schemas_1.adminSchemas.updateEmployeeSalarySchema), salaryController_1.SalaryController.updateEmployeeSalary);
 exports.default = router;
 //# sourceMappingURL=index.js.map

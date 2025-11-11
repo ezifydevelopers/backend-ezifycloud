@@ -75,6 +75,14 @@ export interface Employee {
   joinDate: Date;
   lastLogin?: Date;
   leaveBalance?: LeaveBalance[];
+  probationStatus?: 'active' | 'completed' | 'extended' | 'terminated' | null;
+  probationStartDate?: Date | null;
+  probationEndDate?: Date | null;
+  probationDuration?: number | null;
+  probationCompletedAt?: Date | null;
+  employeeType?: 'onshore' | 'offshore' | null;
+  region?: string | null;
+  timezone?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -92,6 +100,9 @@ export interface EmployeeFilters {
   role?: string;
   isActive?: boolean;
   status?: 'active' | 'inactive' | 'all';
+  probationStatus?: 'active' | 'completed' | 'extended' | 'terminated' | 'all';
+  employeeType?: 'onshore' | 'offshore' | 'all';
+  region?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -137,6 +148,7 @@ export interface LeaveRequest {
   totalDays: number;
   reason: string;
   status: 'pending' | 'approved' | 'rejected';
+  isPaid: boolean;
   submittedAt: Date;
   approvedBy?: string;
   approvedAt?: Date;

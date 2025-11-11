@@ -82,6 +82,23 @@ export declare class SalaryService {
         leaveDeductions: number;
         taxDeductions: number;
     }>;
+    static createEmployeeSalary(salaryData: {
+        userId: string;
+        baseSalary: number;
+        hourlyRate?: number;
+        currency: string;
+        effectiveDate: Date;
+        endDate?: Date;
+        isActive: boolean;
+    }): Promise<any>;
+    static updateEmployeeSalary(salaryId: string, updateData: {
+        baseSalary?: number;
+        hourlyRate?: number;
+        currency?: string;
+        effectiveDate?: Date;
+        endDate?: Date;
+        isActive?: boolean;
+    }): Promise<any>;
 }
 export default SalaryService;
 //# sourceMappingURL=salaryService.d.ts.map

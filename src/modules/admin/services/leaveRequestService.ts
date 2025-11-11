@@ -110,6 +110,8 @@ export class LeaveRequestService {
         totalDays: Number(request.totalDays),
         reason: request.reason,
         status: request.status as 'pending' | 'approved' | 'rejected',
+        isPaid: request.isPaid ?? true, // Default to paid if not set
+        priority: this.determinePriority(request),
         isHalfDay: request.isHalfDay || false,
         halfDayPeriod: request.halfDayPeriod || undefined,
         emergencyContact: undefined, // Not in schema
@@ -200,6 +202,7 @@ export class LeaveRequestService {
         totalDays: Number(request.totalDays),
         reason: request.reason,
         status: request.status as 'pending' | 'approved' | 'rejected',
+        isPaid: request.isPaid ?? true, // Default to paid if not set
         isHalfDay: request.isHalfDay || false,
         halfDayPeriod: request.halfDayPeriod || undefined,
         emergencyContact: undefined, // Not in schema
@@ -277,6 +280,7 @@ export class LeaveRequestService {
         totalDays: Number(request.totalDays),
         reason: request.reason,
         status: request.status as 'pending' | 'approved' | 'rejected',
+        isPaid: request.isPaid ?? true, // Default to paid if not set
         isHalfDay: request.isHalfDay || false,
         halfDayPeriod: request.halfDayPeriod || undefined,
         emergencyContact: undefined, // Not in schema
@@ -492,6 +496,7 @@ export class LeaveRequestService {
         totalDays: Number(request.totalDays),
         reason: request.reason,
         status: request.status as 'pending' | 'approved' | 'rejected',
+        isPaid: request.isPaid ?? true, // Default to paid if not set
         isHalfDay: request.isHalfDay || false,
         halfDayPeriod: request.halfDayPeriod || undefined,
         emergencyContact: undefined, // Not in schema

@@ -127,7 +127,7 @@ export class PolicyEnforcementService {
     policy: LeavePolicy,
     result: PolicyEnforcementResult
   ): Promise<void> {
-    const totalDays = this.calculateLeaveDays(
+    const totalDays = await this.calculateLeaveDays(
       leaveRequest.startDate,
       leaveRequest.endDate,
       leaveRequest.isHalfDay
@@ -225,7 +225,7 @@ export class PolicyEnforcementService {
     policy: LeavePolicy,
     result: PolicyEnforcementResult
   ): Promise<void> {
-    const totalDays = this.calculateLeaveDays(
+    const totalDays = await this.calculateLeaveDays(
       leaveRequest.startDate,
       leaveRequest.endDate,
       leaveRequest.isHalfDay
@@ -370,7 +370,7 @@ export class PolicyEnforcementService {
     policy: LeavePolicy,
     result: PolicyEnforcementResult
   ): Promise<void> {
-    const totalDays = this.calculateLeaveDays(
+    const totalDays = await this.calculateLeaveDays(
       leaveRequest.startDate,
       leaveRequest.endDate,
       leaveRequest.isHalfDay
@@ -512,18 +512,18 @@ export class PolicyEnforcementService {
   /**
    * Calculate leave days
    */
-  private static calculateLeaveDays(
+  private static async calculateLeaveDays(
     startDate: Date,
     endDate: Date,
     isHalfDay: boolean
-  ): number {
+  ): Promise<number> {
     if (isHalfDay) {
       return 0.5;
     }
 
-    const timeDiff = endDate.getTime() - startDate.getTime();
-    const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
-    return daysDiff;
+    // Use automated working days calculation (excludes weekends and holidays)
+    const { WorkingDaysService } = await import('./workingDaysService');
+    return await WorkingDaysService.calculateWorkingDaysBetween(startDate, endDate);
   }
 
   /**

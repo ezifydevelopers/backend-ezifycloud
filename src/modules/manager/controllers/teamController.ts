@@ -527,6 +527,63 @@ export class TeamController {
   }
 
   /**
+   * Manually adjust team member leave balance (Manager only)
+   */
+  static async adjustTeamMemberLeaveBalance(req: Request, res: Response): Promise<void> {
+    try {
+      const managerId = (req as any).user?.id;
+      const memberId = req.params.id;
+      const { leaveType, additionalDays, reason } = req.body;
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+
+      if (!managerId) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized'
+        });
+        return;
+      }
+
+      if (!leaveType || !additionalDays || additionalDays <= 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid request. leaveType and additionalDays (positive number) are required.'
+        });
+        return;
+      }
+
+      if (!reason || reason.trim().length === 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Reason is required for leave balance adjustments'
+        });
+        return;
+      }
+
+      const result = await TeamService.adjustTeamMemberLeaveBalance(
+        managerId,
+        memberId,
+        leaveType,
+        additionalDays,
+        reason,
+        year
+      );
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result.leaveBalance
+      });
+    } catch (error) {
+      console.error('Error in adjustTeamMemberLeaveBalance:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to adjust team member leave balance'
+      });
+    }
+  }
+
+  /**
    * Get team performance metrics
    */
   static async getTeamPerformance(req: Request, res: Response): Promise<void> {

@@ -2,6 +2,7 @@ import { ManagerDashboardStats, DateRange } from '../types';
 export declare class ManagerDashboardService {
     static getDashboardStats(managerId: string, dateRange?: DateRange): Promise<ManagerDashboardStats>;
     private static getTeamLeaveBalance;
+    private static calculateTeamUsedDays;
     private static getPendingRequests;
     private static getUpcomingLeaves;
     private static getRecentActivities;

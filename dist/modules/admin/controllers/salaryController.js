@@ -160,6 +160,56 @@ class SalaryController {
             res.status(500).json(response);
         }
     }
+    static async createEmployeeSalary(req, res) {
+        try {
+            const adminId = req.user?.id;
+            const salaryData = req.body;
+            console.log('🔍 SalaryController: createEmployeeSalary called by admin:', adminId);
+            console.log('🔍 SalaryController: salary data:', salaryData);
+            const salary = await salaryService_1.default.createEmployeeSalary(salaryData);
+            const response = {
+                success: true,
+                message: 'Employee salary created successfully',
+                data: salary
+            };
+            res.status(201).json(response);
+        }
+        catch (error) {
+            console.error('Error in createEmployeeSalary:', error);
+            const response = {
+                success: false,
+                message: 'Failed to create employee salary',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            };
+            res.status(400).json(response);
+        }
+    }
+    static async updateEmployeeSalary(req, res) {
+        try {
+            const adminId = req.user?.id;
+            const { salaryId } = req.params;
+            const updateData = req.body;
+            console.log('🔍 SalaryController: updateEmployeeSalary called by admin:', adminId);
+            console.log('🔍 SalaryController: salary ID:', salaryId);
+            console.log('🔍 SalaryController: update data:', updateData);
+            const salary = await salaryService_1.default.updateEmployeeSalary(salaryId, updateData);
+            const response = {
+                success: true,
+                message: 'Employee salary updated successfully',
+                data: salary
+            };
+            res.status(200).json(response);
+        }
+        catch (error) {
+            console.error('Error in updateEmployeeSalary:', error);
+            const response = {
+                success: false,
+                message: 'Failed to update employee salary',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            };
+            res.status(400).json(response);
+        }
+    }
 }
 exports.SalaryController = SalaryController;
 //# sourceMappingURL=salaryController.js.map

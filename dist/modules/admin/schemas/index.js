@@ -20,12 +20,10 @@ exports.createEmployeeSchema = joi_1.default.object({
     email: joi_1.default.string().email().required(),
     phone: joi_1.default.string().optional().allow(''),
     department: joi_1.default.string().required(),
-    position: joi_1.default.string().required(),
     role: joi_1.default.string().valid('admin', 'manager', 'employee').required(),
     managerId: joi_1.default.string().optional().allow(null),
     password: joi_1.default.string().min(6).required(),
     bio: joi_1.default.string().optional().allow(''),
-    avatar: joi_1.default.string().uri().optional().allow(''),
 });
 exports.updateEmployeeSchema = joi_1.default.object({
     name: joi_1.default.string().min(2).max(100).optional(),
@@ -241,7 +239,7 @@ const updateHolidaySchema = joi_1.default.object({
 });
 const holidayQuerySchema = joi_1.default.object({
     type: joi_1.default.string().valid('all', 'public', 'company', 'religious', 'national').default('all'),
-    year: joi_1.default.string().pattern(/^\d{4}$/).optional(),
+    year: joi_1.default.alternatives().try(joi_1.default.string().valid('all'), joi_1.default.string().pattern(/^\d{4}$/)).optional(),
     limit: joi_1.default.number().integer().min(1).max(100).default(50),
     page: joi_1.default.number().integer().min(1).default(1),
 });
@@ -294,6 +292,23 @@ exports.adminSchemas = {
     }),
     approveSalarySchema: joi_1.default.object({
         notes: joi_1.default.string().optional().allow(''),
+    }),
+    createEmployeeSalarySchema: joi_1.default.object({
+        userId: joi_1.default.string().required(),
+        baseSalary: joi_1.default.number().positive().required(),
+        hourlyRate: joi_1.default.number().positive().optional(),
+        currency: joi_1.default.string().valid('USD', 'EUR', 'GBP', 'INR').default('USD'),
+        effectiveDate: joi_1.default.date().iso().required(),
+        endDate: joi_1.default.date().iso().optional(),
+        isActive: joi_1.default.boolean().default(true),
+    }),
+    updateEmployeeSalarySchema: joi_1.default.object({
+        baseSalary: joi_1.default.number().positive().optional(),
+        hourlyRate: joi_1.default.number().positive().optional(),
+        currency: joi_1.default.string().valid('USD', 'EUR', 'GBP', 'INR').optional(),
+        effectiveDate: joi_1.default.date().iso().optional(),
+        endDate: joi_1.default.date().iso().optional(),
+        isActive: joi_1.default.boolean().optional(),
     }),
 };
 //# sourceMappingURL=index.js.map

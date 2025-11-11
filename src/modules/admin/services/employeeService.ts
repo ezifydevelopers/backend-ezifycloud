@@ -21,6 +21,9 @@ export class EmployeeService {
         department = '',
         role = '',
         status = 'all',
+        probationStatus = 'all',
+        employeeType = 'all',
+        region = '',
         page = 1,
         limit = 10,
         sortBy = 'createdAt',
@@ -49,6 +52,29 @@ export class EmployeeService {
 
       if (status !== 'all') {
         where.isActive = status === 'active';
+      }
+
+      // Filter by probation status
+      if (probationStatus && probationStatus !== 'all') {
+        if (probationStatus === 'active') {
+          where.probationStatus = 'active';
+        } else if (probationStatus === 'completed') {
+          where.probationStatus = 'completed';
+        } else if (probationStatus === 'extended') {
+          where.probationStatus = 'extended';
+        } else if (probationStatus === 'terminated') {
+          where.probationStatus = 'terminated';
+        }
+      }
+
+      // Filter by employee type
+      if (employeeType && employeeType !== 'all') {
+        where.employeeType = employeeType;
+      }
+
+      // Filter by region
+      if (region && region !== '') {
+        where.region = region;
       }
 
       // Get total count
@@ -91,6 +117,11 @@ export class EmployeeService {
             leaveBalance,
             avatar: emp.profilePicture || undefined,
             bio: undefined, // Not in schema
+            probationStatus: emp.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+            probationStartDate: emp.probationStartDate,
+            probationEndDate: emp.probationEndDate,
+            probationDuration: emp.probationDuration,
+            probationCompletedAt: emp.probationCompletedAt,
             createdAt: emp.createdAt,
             updatedAt: emp.updatedAt
           };
@@ -161,6 +192,14 @@ export class EmployeeService {
         leaveBalance,
         avatar: employee.profilePicture || undefined,
         bio: undefined, // Not in schema
+        probationStatus: employee.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+        probationStartDate: employee.probationStartDate,
+        probationEndDate: employee.probationEndDate,
+        probationDuration: employee.probationDuration,
+        probationCompletedAt: employee.probationCompletedAt,
+        employeeType: employee.employeeType as 'onshore' | 'offshore' | null,
+        region: employee.region,
+        timezone: employee.timezone,
         createdAt: employee.createdAt,
         updatedAt: employee.updatedAt
       };
@@ -182,6 +221,11 @@ export class EmployeeService {
     managerId?: string;
     password: string;
     bio?: string;
+    probationDuration?: number; // Duration in days (default: 90)
+    startProbation?: boolean; // Whether to start probation immediately
+    employeeType?: 'onshore' | 'offshore'; // Employee type for dashboard routing
+    region?: string; // Region/country
+    timezone?: string; // Timezone
   }): Promise<Employee> {
     try {
       console.log('🔍 EmployeeService: Creating employee with data:', employeeData);
@@ -226,6 +270,17 @@ export class EmployeeService {
       }
 
       // Create employee
+      // Admins are auto-approved, employees/managers need approval
+      const autoApprove = employeeData.role === 'admin';
+      
+      // Set up probation for employees (not admins/managers)
+      const probationDuration = employeeData.probationDuration || 90; // Default 90 days
+      const shouldStartProbation = employeeData.startProbation !== false && employeeData.role === 'employee';
+      const probationStartDate = shouldStartProbation ? new Date() : null;
+      const probationEndDate = shouldStartProbation 
+        ? new Date(Date.now() + probationDuration * 24 * 60 * 60 * 1000)
+        : null;
+      
       const employee = await prisma.user.create({
         data: {
           name: employeeData.name,
@@ -234,7 +289,15 @@ export class EmployeeService {
           role: employeeData.role,
           department: employeeData.department,
           managerId: assignedManagerId,
-          isActive: true
+          isActive: true,
+          approvalStatus: autoApprove ? 'approved' : 'pending',
+          probationStatus: shouldStartProbation ? 'active' : null,
+          probationStartDate,
+          probationEndDate,
+          probationDuration: shouldStartProbation ? probationDuration : null,
+          employeeType: employeeData.employeeType || null,
+          region: employeeData.region || null,
+          timezone: employeeData.timezone || null
         },
         include: {
           manager: {
@@ -264,6 +327,14 @@ export class EmployeeService {
         leaveBalance,
         avatar: employee.profilePicture || undefined,
         bio: undefined, // Not in schema
+        probationStatus: employee.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+        probationStartDate: employee.probationStartDate,
+        probationEndDate: employee.probationEndDate,
+        probationDuration: employee.probationDuration,
+        probationCompletedAt: employee.probationCompletedAt,
+        employeeType: employee.employeeType as 'onshore' | 'offshore' | null,
+        region: employee.region,
+        timezone: employee.timezone,
         createdAt: employee.createdAt,
         updatedAt: employee.updatedAt
       };
@@ -289,6 +360,9 @@ export class EmployeeService {
     managerId?: string;
     bio?: string;
     avatar?: string;
+    employeeType?: 'onshore' | 'offshore' | null;
+    region?: string | null;
+    timezone?: string | null;
   }): Promise<Employee> {
     try {
       // Check if employee exists
@@ -320,7 +394,10 @@ export class EmployeeService {
           role: updateData.role,
           department: updateData.department,
           managerId: updateData.managerId,
-          profilePicture: updateData.avatar || undefined
+          profilePicture: updateData.avatar || undefined,
+          employeeType: updateData.employeeType !== undefined ? updateData.employeeType : undefined,
+          region: updateData.region !== undefined ? updateData.region : undefined,
+          timezone: updateData.timezone !== undefined ? updateData.timezone : undefined
         },
         include: {
           manager: {
@@ -350,6 +427,14 @@ export class EmployeeService {
         leaveBalance,
         avatar: employee.profilePicture || undefined,
         bio: undefined, // Not in schema
+        probationStatus: employee.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+        probationStartDate: employee.probationStartDate,
+        probationEndDate: employee.probationEndDate,
+        probationDuration: employee.probationDuration,
+        probationCompletedAt: employee.probationCompletedAt,
+        employeeType: employee.employeeType as 'onshore' | 'offshore' | null,
+        region: employee.region,
+        timezone: employee.timezone,
         createdAt: employee.createdAt,
         updatedAt: employee.updatedAt
       };
@@ -480,6 +565,14 @@ export class EmployeeService {
         leaveBalance,
         avatar: employee.profilePicture || undefined,
         bio: undefined, // Not in schema
+        probationStatus: employee.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+        probationStartDate: employee.probationStartDate,
+        probationEndDate: employee.probationEndDate,
+        probationDuration: employee.probationDuration,
+        probationCompletedAt: employee.probationCompletedAt,
+        employeeType: employee.employeeType as 'onshore' | 'offshore' | null,
+        region: employee.region,
+        timezone: employee.timezone,
         createdAt: employee.createdAt,
         updatedAt: employee.updatedAt
       };
@@ -860,6 +953,355 @@ export class EmployeeService {
     } catch (error) {
       console.error('❌ EmployeeService: Error fetching employee leave balance:', error);
       throw new Error('Failed to fetch employee leave balance');
+    }
+  }
+
+  /**
+   * Manually adjust employee leave balance (Admin/Manager only)
+   * This allows authorized personnel to add additional leave days beyond the policy limit
+   */
+  public static async adjustEmployeeLeaveBalance(
+    employeeId: string,
+    leaveType: string,
+    additionalDays: number,
+    reason: string,
+    adjustedBy: string,
+    year?: number
+  ): Promise<any> {
+    try {
+      const currentYear = year || new Date().getFullYear();
+      
+      // Validate leave type
+      const policy = await prisma.leavePolicy.findUnique({
+        where: { leaveType }
+      });
+
+      if (!policy) {
+        throw new Error(`No leave policy found for ${leaveType} leave`);
+      }
+
+      // Get or create leave balance
+      let leaveBalance = await prisma.leaveBalance.findUnique({
+        where: {
+          userId_year: {
+            userId: employeeId,
+            year: currentYear
+          }
+        }
+      });
+
+      if (!leaveBalance) {
+        // Create new leave balance record
+        leaveBalance = await prisma.leaveBalance.create({
+          data: {
+            userId: employeeId,
+            year: currentYear,
+            annualTotal: 25,
+            annualUsed: 0,
+            annualRemaining: 25,
+            sickTotal: 10,
+            sickUsed: 0,
+            sickRemaining: 10,
+            casualTotal: 8,
+            casualUsed: 0,
+            casualRemaining: 8,
+            maternityTotal: 90,
+            maternityUsed: 0,
+            maternityRemaining: 90,
+            paternityTotal: 15,
+            paternityUsed: 0,
+            paternityRemaining: 15,
+            emergencyTotal: 5,
+            emergencyUsed: 0,
+            emergencyRemaining: 5
+          }
+        });
+      }
+
+      // Map leave type to balance field
+      const balanceFieldMap: { [key: string]: { total: string; remaining: string } } = {
+        'annual': { total: 'annualTotal', remaining: 'annualRemaining' },
+        'sick': { total: 'sickTotal', remaining: 'sickRemaining' },
+        'casual': { total: 'casualTotal', remaining: 'casualRemaining' },
+        'maternity': { total: 'maternityTotal', remaining: 'maternityRemaining' },
+        'paternity': { total: 'paternityTotal', remaining: 'paternityRemaining' },
+        'emergency': { total: 'emergencyTotal', remaining: 'emergencyRemaining' }
+      };
+
+      const fields = balanceFieldMap[leaveType];
+      if (!fields) {
+        throw new Error(`Invalid leave type: ${leaveType}`);
+      }
+
+      // Update leave balance - add additional days to total and remaining
+      const currentTotal = (leaveBalance as any)[fields.total];
+      const currentRemaining = (leaveBalance as any)[fields.remaining];
+      
+      const updatedBalance = await prisma.leaveBalance.update({
+        where: {
+          userId_year: {
+            userId: employeeId,
+            year: currentYear
+          }
+        },
+        data: {
+          [fields.total]: currentTotal + additionalDays,
+          [fields.remaining]: currentRemaining + additionalDays
+        }
+      });
+
+      // Get admin user name for audit log
+      const adminUser = await prisma.user.findUnique({
+        where: { id: adjustedBy },
+        select: { name: true }
+      });
+
+      // Create audit log entry for the adjustment
+      await prisma.auditLog.create({
+        data: {
+          userId: adjustedBy,
+          userName: adminUser?.name || 'System',
+          action: 'ADJUST_LEAVE_BALANCE',
+          targetId: employeeId,
+          targetType: 'user',
+          details: {
+            leaveType,
+            additionalDays,
+            reason,
+            previousTotal: currentTotal,
+            newTotal: currentTotal + additionalDays,
+            previousRemaining: currentRemaining,
+            newRemaining: currentRemaining + additionalDays,
+            year: currentYear
+          } as any
+        }
+      });
+
+      return {
+        success: true,
+        message: `Successfully added ${additionalDays} ${leaveType} leave days`,
+        leaveBalance: updatedBalance
+      };
+    } catch (error) {
+      console.error('Error adjusting employee leave balance:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to adjust employee leave balance');
+    }
+  }
+
+  /**
+   * Complete employee probation
+   */
+  static async completeProbation(employeeId: string): Promise<Employee> {
+    try {
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId }
+      });
+
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      if (employee.probationStatus !== 'active' && employee.probationStatus !== 'extended') {
+        throw new Error('Employee is not in active probation');
+      }
+
+      const updatedEmployee = await prisma.user.update({
+        where: { id: employeeId },
+        data: {
+          probationStatus: 'completed',
+          probationCompletedAt: new Date()
+        },
+        include: {
+          manager: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      });
+
+      const leaveBalance = await EmployeeService.getEmployeeLeaveBalance(updatedEmployee.id);
+
+      return {
+        id: updatedEmployee.id,
+        name: updatedEmployee.name,
+        email: updatedEmployee.email,
+        phone: undefined,
+        department: updatedEmployee.department || 'Unassigned',
+        position: 'Employee',
+        role: updatedEmployee.role as 'admin' | 'manager' | 'employee',
+        managerId: updatedEmployee.managerId || undefined,
+        managerName: updatedEmployee.manager?.name,
+        isActive: updatedEmployee.isActive,
+        joinDate: updatedEmployee.createdAt,
+        lastLogin: undefined,
+        leaveBalance,
+        avatar: updatedEmployee.profilePicture || undefined,
+        bio: undefined,
+        probationStatus: updatedEmployee.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+        probationStartDate: updatedEmployee.probationStartDate,
+        probationEndDate: updatedEmployee.probationEndDate,
+        probationDuration: updatedEmployee.probationDuration,
+        probationCompletedAt: updatedEmployee.probationCompletedAt,
+        employeeType: updatedEmployee.employeeType as 'onshore' | 'offshore' | null,
+        region: updatedEmployee.region,
+        timezone: updatedEmployee.timezone,
+        createdAt: updatedEmployee.createdAt,
+        updatedAt: updatedEmployee.updatedAt
+      };
+    } catch (error) {
+      console.error('Error completing probation:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to complete probation');
+    }
+  }
+
+  /**
+   * Extend employee probation
+   */
+  static async extendProbation(employeeId: string, additionalDays: number): Promise<Employee> {
+    try {
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId }
+      });
+
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      if (employee.probationStatus !== 'active' && employee.probationStatus !== 'extended') {
+        throw new Error('Employee is not in active probation');
+      }
+
+      const currentEndDate = employee.probationEndDate || new Date();
+      const newEndDate = new Date(currentEndDate.getTime() + additionalDays * 24 * 60 * 60 * 1000);
+      const newDuration = (employee.probationDuration || 0) + additionalDays;
+
+      const updatedEmployee = await prisma.user.update({
+        where: { id: employeeId },
+        data: {
+          probationStatus: 'extended',
+          probationEndDate: newEndDate,
+          probationDuration: newDuration
+        },
+        include: {
+          manager: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      });
+
+      const leaveBalance = await EmployeeService.getEmployeeLeaveBalance(updatedEmployee.id);
+
+      return {
+        id: updatedEmployee.id,
+        name: updatedEmployee.name,
+        email: updatedEmployee.email,
+        phone: undefined,
+        department: updatedEmployee.department || 'Unassigned',
+        position: 'Employee',
+        role: updatedEmployee.role as 'admin' | 'manager' | 'employee',
+        managerId: updatedEmployee.managerId || undefined,
+        managerName: updatedEmployee.manager?.name,
+        isActive: updatedEmployee.isActive,
+        joinDate: updatedEmployee.createdAt,
+        lastLogin: undefined,
+        leaveBalance,
+        avatar: updatedEmployee.profilePicture || undefined,
+        bio: undefined,
+        probationStatus: updatedEmployee.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+        probationStartDate: updatedEmployee.probationStartDate,
+        probationEndDate: updatedEmployee.probationEndDate,
+        probationDuration: updatedEmployee.probationDuration,
+        probationCompletedAt: updatedEmployee.probationCompletedAt,
+        employeeType: updatedEmployee.employeeType as 'onshore' | 'offshore' | null,
+        region: updatedEmployee.region,
+        timezone: updatedEmployee.timezone,
+        createdAt: updatedEmployee.createdAt,
+        updatedAt: updatedEmployee.updatedAt
+      };
+    } catch (error) {
+      console.error('Error extending probation:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to extend probation');
+    }
+  }
+
+  /**
+   * Terminate employee probation (employee terminated during probation)
+   */
+  static async terminateProbation(employeeId: string): Promise<Employee> {
+    try {
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId }
+      });
+
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      const updatedEmployee = await prisma.user.update({
+        where: { id: employeeId },
+        data: {
+          probationStatus: 'terminated',
+          isActive: false
+        },
+        include: {
+          manager: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      });
+
+      const leaveBalance = await EmployeeService.getEmployeeLeaveBalance(updatedEmployee.id);
+
+      return {
+        id: updatedEmployee.id,
+        name: updatedEmployee.name,
+        email: updatedEmployee.email,
+        phone: undefined,
+        department: updatedEmployee.department || 'Unassigned',
+        position: 'Employee',
+        role: updatedEmployee.role as 'admin' | 'manager' | 'employee',
+        managerId: updatedEmployee.managerId || undefined,
+        managerName: updatedEmployee.manager?.name,
+        isActive: updatedEmployee.isActive,
+        joinDate: updatedEmployee.createdAt,
+        lastLogin: undefined,
+        leaveBalance,
+        avatar: updatedEmployee.profilePicture || undefined,
+        bio: undefined,
+        probationStatus: updatedEmployee.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+        probationStartDate: updatedEmployee.probationStartDate,
+        probationEndDate: updatedEmployee.probationEndDate,
+        probationDuration: updatedEmployee.probationDuration,
+        probationCompletedAt: updatedEmployee.probationCompletedAt,
+        employeeType: updatedEmployee.employeeType as 'onshore' | 'offshore' | null,
+        region: updatedEmployee.region,
+        timezone: updatedEmployee.timezone,
+        createdAt: updatedEmployee.createdAt,
+        updatedAt: updatedEmployee.updatedAt
+      };
+    } catch (error) {
+      console.error('Error terminating probation:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to terminate probation');
     }
   }
 }

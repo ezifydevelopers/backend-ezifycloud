@@ -75,10 +75,16 @@ router.patch('/team/members/:id/toggle-status',
   TeamController.toggleTeamMemberStatus
 );
 
-// Team Member Leave Balance Route
+// Team Member Leave Balance Routes
 router.get('/team/members/:id/leave-balance', 
   validateParams(managerSchemas.idParam),
   TeamController.getTeamMemberLeaveBalance
+);
+
+router.post('/team/members/:id/leave-balance/adjust', 
+  validateParams(managerSchemas.idParam),
+  validateRequest(managerSchemas.adjustLeaveBalance),
+  TeamController.adjustTeamMemberLeaveBalance
 );
 
 router.get('/team/stats', 

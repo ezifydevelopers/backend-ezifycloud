@@ -21,6 +21,9 @@ export const createEmployeeSchema = Joi.object({
   managerId: Joi.string().optional().allow(null),
   password: Joi.string().min(6).required(),
   bio: Joi.string().optional().allow(''),
+  employeeType: Joi.string().valid('onshore', 'offshore').optional().allow(null),
+  region: Joi.string().optional().allow(null, ''),
+  timezone: Joi.string().optional().allow(null, ''),
 });
 
 export const updateEmployeeSchema = Joi.object({
@@ -33,6 +36,9 @@ export const updateEmployeeSchema = Joi.object({
   managerId: Joi.string().optional().allow(null),
   bio: Joi.string().optional().allow(''),
   avatar: Joi.string().uri().optional().allow(''),
+  employeeType: Joi.string().valid('onshore', 'offshore').optional().allow(null),
+  region: Joi.string().optional().allow(null, ''),
+  timezone: Joi.string().optional().allow(null, ''),
 });
 
 export const toggleEmployeeStatusSchema = Joi.object({
@@ -51,6 +57,12 @@ export const bulkDeleteEmployeesSchema = Joi.object({
 export const bulkUpdateEmployeeDepartmentSchema = Joi.object({
   employeeIds: Joi.array().items(Joi.string().uuid()).min(1).required(),
   department: Joi.string().min(1).required(),
+});
+
+export const adjustLeaveBalanceSchema = Joi.object({
+  leaveType: Joi.string().valid('annual', 'sick', 'casual', 'maternity', 'paternity', 'emergency').required(),
+  additionalDays: Joi.number().integer().min(1).max(365).required(),
+  reason: Joi.string().min(5).max(500).required(),
 });
 
 // Leave Request Management Schemas
@@ -276,7 +288,10 @@ const updateHolidaySchema = Joi.object({
 
 const holidayQuerySchema = Joi.object({
   type: Joi.string().valid('all', 'public', 'company', 'religious', 'national').default('all'),
-  year: Joi.string().valid('all').pattern(/^\d{4}$/).optional(),
+  year: Joi.alternatives().try(
+    Joi.string().valid('all'),
+    Joi.string().pattern(/^\d{4}$/)
+  ).optional(),
   limit: Joi.number().integer().min(1).max(100).default(50),
   page: Joi.number().integer().min(1).default(1),
 });
@@ -294,6 +309,7 @@ export const adminSchemas = {
   bulkUpdateEmployeeStatus: bulkUpdateEmployeeStatusSchema,
   bulkDeleteEmployees: bulkDeleteEmployeesSchema,
   bulkUpdateEmployeeDepartment: bulkUpdateEmployeeDepartmentSchema,
+  adjustLeaveBalanceSchema: adjustLeaveBalanceSchema,
   leaveRequestFilters: leaveRequestFiltersSchema,
   updateLeaveRequestStatus: updateLeaveRequestStatusSchema,
   bulkUpdateLeaveRequests: bulkUpdateLeaveRequestsSchema,

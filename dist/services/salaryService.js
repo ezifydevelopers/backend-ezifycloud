@@ -441,6 +441,87 @@ class SalaryService {
             throw new Error('Failed to fetch salary statistics');
         }
     }
+    static async createEmployeeSalary(salaryData) {
+        try {
+            console.log('🔍 SalaryService: Creating employee salary:', salaryData);
+            const user = await prisma_1.default.user.findUnique({
+                where: { id: salaryData.userId }
+            });
+            if (!user) {
+                throw new Error('User not found');
+            }
+            const existingSalary = await prisma_1.default.employeeSalary.findFirst({
+                where: {
+                    userId: salaryData.userId,
+                    isActive: true
+                }
+            });
+            if (existingSalary) {
+                throw new Error('User already has an active salary record');
+            }
+            const salary = await prisma_1.default.employeeSalary.create({
+                data: {
+                    userId: salaryData.userId,
+                    baseSalary: salaryData.baseSalary,
+                    hourlyRate: salaryData.hourlyRate,
+                    currency: salaryData.currency,
+                    effectiveDate: salaryData.effectiveDate,
+                    endDate: salaryData.endDate,
+                    isActive: salaryData.isActive
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            department: true
+                        }
+                    }
+                }
+            });
+            console.log('✅ SalaryService: Employee salary created successfully:', salary.id);
+            return salary;
+        }
+        catch (error) {
+            console.error('Error creating employee salary:', error);
+            throw new Error(error instanceof Error ? error.message : 'Failed to create employee salary');
+        }
+    }
+    static async updateEmployeeSalary(salaryId, updateData) {
+        try {
+            console.log('🔍 SalaryService: Updating employee salary:', salaryId, updateData);
+            const existingSalary = await prisma_1.default.employeeSalary.findUnique({
+                where: { id: salaryId }
+            });
+            if (!existingSalary) {
+                throw new Error('Salary record not found');
+            }
+            const salary = await prisma_1.default.employeeSalary.update({
+                where: { id: salaryId },
+                data: {
+                    ...updateData,
+                    updatedAt: new Date()
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            department: true
+                        }
+                    }
+                }
+            });
+            console.log('✅ SalaryService: Employee salary updated successfully:', salary.id);
+            return salary;
+        }
+        catch (error) {
+            console.error('Error updating employee salary:', error);
+            throw new Error(error instanceof Error ? error.message : 'Failed to update employee salary');
+        }
+    }
 }
 exports.SalaryService = SalaryService;
 exports.default = SalaryService;

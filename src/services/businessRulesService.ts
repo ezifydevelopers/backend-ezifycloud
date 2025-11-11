@@ -88,18 +88,20 @@ export class BusinessRulesService {
         };
       }
 
-      // Calculate total days
-      const totalDays = this.calculateLeaveDays(
+      // Calculate total days using automated working days calculation
+      const totalDays = await this.calculateLeaveDays(
         leaveRequest.startDate,
         leaveRequest.endDate,
         leaveRequest.isHalfDay
       );
 
-      // Rule 1: Check leave balance
+      // Rule 1: Check leave balance with strict limit enforcement
+      // Employees cannot exceed their limit - only managers/admins can manually add days
       const balanceResult = await this.validateLeaveBalance(
         userId,
         leaveRequest.leaveType,
-        totalDays
+        totalDays,
+        true // Enforce strict limits - employees cannot exceed their allocated leave
       );
       if (!balanceResult.isValid) {
         result.isValid = false;
@@ -391,11 +393,13 @@ export class BusinessRulesService {
 
   /**
    * Validate leave balance - Enhanced to allow negative balance with salary deduction
+   * Now with strict limit enforcement option
    */
   private static async validateLeaveBalance(
     userId: string,
     leaveType: string,
-    requestedDays: number
+    requestedDays: number,
+    enforceStrictLimit: boolean = false
   ): Promise<BusinessRuleResult> {
     const balance = await this.calculateLeaveBalance(userId);
     const leaveBalance = balance[leaveType];
@@ -411,8 +415,18 @@ export class BusinessRulesService {
     const newBalance = leaveBalance.remaining - requestedDays;
     
     if (newBalance < 0) {
-      // Allow negative balance but add warning about salary deduction
       const excessDays = Math.abs(newBalance);
+      
+      // If strict limit enforcement is enabled, reject the request
+      if (enforceStrictLimit) {
+        return {
+          isValid: false,
+          message: `Leave limit reached. You have ${leaveBalance.remaining} days remaining, but requested ${requestedDays} days. Please contact your manager or admin to request additional leave days.`,
+          warnings: [`Leave limit exceeded by ${excessDays} days`, `Contact manager/admin to manually add additional leave days`]
+        };
+      }
+      
+      // Allow negative balance but add warning about salary deduction
       return {
         isValid: true,
         message: `Leave request will result in negative balance. ${excessDays} days will be deducted from salary.`,
@@ -557,7 +571,7 @@ export class BusinessRulesService {
   private static validateMaxConsecutiveDays(
     requestedDays: number,
     policy: LeavePolicy,
-    leaveType: string
+    leaveType: string 
   ): BusinessRuleResult {
     // Recommended consecutive days limits (not hard limits)
     const recommendedConsecutiveDays: { [key: string]: number } = {
@@ -666,20 +680,20 @@ export class BusinessRulesService {
   }
 
   /**
-   * Calculate leave days
+   * Calculate leave days (using automated working days calculation)
    */
-  private static calculateLeaveDays(
+  private static async calculateLeaveDays(
     startDate: Date,
     endDate: Date,
     isHalfDay: boolean
-  ): number {
+  ): Promise<number> {
     if (isHalfDay) {
       return 0.5;
     }
 
-    const timeDiff = endDate.getTime() - startDate.getTime();
-    const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
-    return daysDiff;
+    // Use automated working days calculation (excludes weekends and holidays)
+    const { WorkingDaysService } = await import('./workingDaysService');
+    return await WorkingDaysService.calculateWorkingDaysBetween(startDate, endDate);
   }
 }
 

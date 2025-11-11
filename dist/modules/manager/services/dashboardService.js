@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ManagerDashboardService = void 0;
 const client_1 = require("@prisma/client");
+const app_1 = require("../../../config/app");
 const prisma = new client_1.PrismaClient();
 class ManagerDashboardService {
     static async getDashboardStats(managerId, dateRange) {
@@ -55,7 +56,7 @@ class ManagerDashboardService {
             const teamLeaveBalance = await this.getTeamLeaveBalance(teamMemberIds, startDate, endDate);
             const upcomingLeaves = await this.getUpcomingLeaves(managerId, 5);
             const pendingRequests = await this.getPendingRequests(managerId, 5);
-            const recentActivities = await this.getRecentActivities(managerId, 10);
+            const recentActivities = await this.getRecentActivities(managerId, app_1.APP_CONFIG.DASHBOARD.DEFAULT_LIMITS.RECENT_ACTIVITIES);
             const teamPerformance = await this.getTeamPerformanceMetrics(managerId);
             const departmentStats = await this.getManagerDepartmentStats(managerId, startDate, endDate);
             const actualData = {
@@ -91,67 +92,55 @@ class ManagerDashboardService {
                     totalDaysPerYear: true
                 }
             });
-            const policyMap = new Map();
-            leavePolicies.forEach(policy => {
-                policyMap.set(policy.leaveType, policy.totalDaysPerYear);
-            });
-            const leaveBalances = await prisma.leaveBalance.findMany({
-                where: {
-                    userId: { in: teamMemberIds },
-                    year: currentYear
-                }
-            });
-            let totalAnnual = 0, usedAnnual = 0, remainingAnnual = 0;
-            let totalSick = 0, usedSick = 0, remainingSick = 0;
-            let totalCasual = 0, usedCasual = 0, remainingCasual = 0;
-            if (policyMap.has('annual')) {
-                const annualPolicyTotal = policyMap.get('annual');
-                totalAnnual = leaveBalances.length * annualPolicyTotal;
-                usedAnnual = leaveBalances.reduce((sum, balance) => sum + balance.annualUsed, 0);
-                remainingAnnual = leaveBalances.reduce((sum, balance) => sum + Math.min(balance.annualRemaining, annualPolicyTotal), 0);
+            const dynamicTeamLeaveBalance = {};
+            let totalTeamDays = 0;
+            let totalUsedDays = 0;
+            for (const policy of leavePolicies) {
+                const leaveType = policy.leaveType;
+                const teamTotal = teamMemberIds.length * policy.totalDaysPerYear;
+                const usedDays = await this.calculateTeamUsedDays(teamMemberIds, leaveType, currentYear);
+                const remainingDays = Math.max(0, teamTotal - usedDays);
+                dynamicTeamLeaveBalance[leaveType] = {
+                    total: teamTotal,
+                    used: usedDays,
+                    remaining: remainingDays
+                };
+                totalTeamDays += teamTotal;
+                totalUsedDays += usedDays;
             }
-            if (policyMap.has('sick')) {
-                const sickPolicyTotal = policyMap.get('sick');
-                totalSick = leaveBalances.length * sickPolicyTotal;
-                usedSick = leaveBalances.reduce((sum, balance) => sum + balance.sickUsed, 0);
-                remainingSick = leaveBalances.reduce((sum, balance) => sum + Math.min(balance.sickRemaining, sickPolicyTotal), 0);
-            }
-            if (policyMap.has('casual')) {
-                const casualPolicyTotal = policyMap.get('casual');
-                totalCasual = leaveBalances.length * casualPolicyTotal;
-                usedCasual = leaveBalances.reduce((sum, balance) => sum + balance.casualUsed, 0);
-                remainingCasual = leaveBalances.reduce((sum, balance) => sum + Math.min(balance.casualRemaining, casualPolicyTotal), 0);
-            }
-            const totalLeave = totalAnnual + totalSick + totalCasual;
-            const usedLeave = usedAnnual + usedSick + usedCasual;
-            const utilizationRate = totalLeave > 0 ? (usedLeave / totalLeave) * 100 : 0;
+            const utilizationRate = totalTeamDays > 0 ? (totalUsedDays / totalTeamDays) * 100 : 0;
             return {
-                totalAnnual,
-                usedAnnual,
-                remainingAnnual,
-                totalSick,
-                usedSick,
-                remainingSick,
-                totalCasual,
-                usedCasual,
-                remainingCasual,
+                ...dynamicTeamLeaveBalance,
                 utilizationRate: Math.round(utilizationRate * 100) / 100
             };
         }
         catch (error) {
             console.error('Error fetching team leave balance:', error);
             return {
-                totalAnnual: 0,
-                usedAnnual: 0,
-                remainingAnnual: 0,
-                totalSick: 0,
-                usedSick: 0,
-                remainingSick: 0,
-                totalCasual: 0,
-                usedCasual: 0,
-                remainingCasual: 0,
                 utilizationRate: 0
             };
+        }
+    }
+    static async calculateTeamUsedDays(teamMemberIds, leaveType, year) {
+        try {
+            const startDate = new Date(year, 0, 1);
+            const endDate = new Date(year, 11, 31);
+            const approvedRequests = await prisma.leaveRequest.findMany({
+                where: {
+                    userId: { in: teamMemberIds },
+                    leaveType: leaveType,
+                    status: 'approved',
+                    submittedAt: { gte: startDate, lte: endDate }
+                },
+                select: {
+                    totalDays: true
+                }
+            });
+            return approvedRequests.reduce((sum, request) => sum + Number(request.totalDays), 0);
+        }
+        catch (error) {
+            console.error('Error calculating team used days:', error);
+            return 0;
         }
     }
     static async getPendingRequests(managerId, limit = 5) {
@@ -237,7 +226,7 @@ class ManagerDashboardService {
             return [];
         }
     }
-    static async getRecentActivities(managerId, limit = 10) {
+    static async getRecentActivities(managerId, limit = app_1.APP_CONFIG.DASHBOARD.DEFAULT_LIMITS.RECENT_ACTIVITIES) {
         try {
             const activities = [];
             const recentLeaveRequests = await prisma.leaveRequest.findMany({
@@ -355,7 +344,7 @@ class ManagerDashboardService {
             const rejectionRate = totalRequests > 0 ? (rejectedRequests / totalRequests) * 100 : 0;
             const averageResponseTime = 24;
             const teamSatisfaction = 4.2;
-            const productivityScore = 7.5;
+            const productivityScore = app_1.APP_CONFIG.DASHBOARD.PERFORMANCE.SCALE.DEFAULT;
             const leaveUtilization = 65;
             return {
                 averageResponseTime,

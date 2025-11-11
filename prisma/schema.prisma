@@ -53,152 +53,244 @@ enum AttendanceStatus {
 }
 
 model User {
-  id              String    @id @default(uuid())
-  name            String
-  email           String    @unique
-  passwordHash    String    @map("password_hash")
-  role            UserRole
-  department      String?
-  managerId       String?   @map("manager_id")
-  profilePicture  String?   @map("profile_picture")
-  phone           String?
-  bio             String?
-  address         String?
+  id               String    @id @default(uuid())
+  name             String
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  role             UserRole
+  department       String?
+  managerId        String?   @map("manager_id")
+  profilePicture   String?   @map("profile_picture")
+  phone            String?
+  bio              String?
+  address          String?
   emergencyContact String?
-  emergencyPhone  String?
-  isActive        Boolean   @default(true) @map("is_active")
-  lastLogin       DateTime? @map("last_login")
-  deletedAt       DateTime? @map("deleted_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  emergencyPhone   String?
+  isActive         Boolean   @default(true) @map("is_active")
+  approvalStatus   String    @default("pending") @map("approval_status") // pending, approved, rejected
+  approvedBy       String?   @map("approved_by") // User ID who approved/rejected
+  approvedAt       DateTime? @map("approved_at")
+  rejectionReason  String?   @map("rejection_reason")
+  joinDate         DateTime? @map("join_date") // Employee joining date for leave accrual
+  probationStatus  String?   @map("probation_status") // active, completed, extended, terminated
+  probationStartDate DateTime? @map("probation_start_date")
+  probationEndDate   DateTime? @map("probation_end_date")
+  probationDuration   Int?     @map("probation_duration") // Duration in days (default: 90)
+  probationCompletedAt DateTime? @map("probation_completed_at")
+  employeeType      String?   @map("employee_type") // onshore, offshore
+  region            String?   @map("region") // Region/country for region-specific requirements
+  timezone          String?   @map("timezone") // Timezone for the employee
+  lastLogin        DateTime? @map("last_login")
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  manager         User?     @relation("UserManager", fields: [managerId], references: [id])
-  subordinates    User[]    @relation("UserManager")
-  leaveRequests   LeaveRequest[]
-  approvedLeaves  LeaveRequest[] @relation("ApprovedLeaves")
-  leaveBalances   LeaveBalance[]
-  auditLogs       AuditLog[]
-  createdPolicies LeavePolicy[] @relation("CreatedPolicies")
-  createdHolidays Holiday[] @relation("CreatedHolidays")
-  attendanceRecords AttendanceRecord[]
+  manager                   User?              @relation("UserManager", fields: [managerId], references: [id])
+  subordinates              User[]             @relation("UserManager")
+  leaveRequests             LeaveRequest[]
+  approvedLeaves            LeaveRequest[]     @relation("ApprovedLeaves")
+  leaveBalances             LeaveBalance[]
+  leaveAccruals             LeaveAccrual[]
+  auditLogs                 AuditLog[]
+  createdPolicies           LeavePolicy[]      @relation("CreatedPolicies")
+  createdHolidays           Holiday[]          @relation("CreatedHolidays")
+  attendanceRecords         AttendanceRecord[]
   createdAttendancePolicies AttendancePolicy[] @relation("CreatedAttendancePolicies")
-  employeeSalary EmployeeSalary[]
-  monthlySalaries MonthlySalary[]
-  approvedSalaries MonthlySalary[] @relation("ApprovedSalaries")
-      
+  employeeSalary            EmployeeSalary[]
+  monthlySalaries           MonthlySalary[]
+  approvedSalaries          MonthlySalary[]    @relation("ApprovedSalaries")
+  workspaceMembers          WorkspaceMember[]
+  workspaceInvites          WorkspaceInvite[]  @relation("WorkspaceInvites")
+  createdWorkspaces         Workspace[]        @relation("CreatedWorkspaces")
+  createdItems              Item[]             @relation("CreatedItems")
+  comments                  Comment[]          @relation("Comments")
+  resolvedComments          Comment[]          @relation("ResolvedComments")
+  commentFiles              CommentFile[]      @relation("CommentFiles")
+  itemFiles                 ItemFile[]         @relation("ItemFiles")
+  activities                Activity[]         @relation("Activities")
+  approvals                 Approval[]         @relation("Approvals")
+  createdDashboards         Dashboard[]        @relation("CreatedDashboards")
+  createdReports            Report[]           @relation("CreatedReports")
+  createdTemplates          BoardTemplate[]    @relation("CreatedTemplates")
+  createdInvoiceTemplates   InvoiceTemplate[]  @relation("CreatedInvoiceTemplates")
+  notifications             Notification[]
+  createdBoards             Board[]            @relation("CreatedBoards")
+  createdColumns            Column[]           @relation("CreatedColumns")
+  boardMembers              BoardMember[]      @relation("BoardMembers")
+
   @@map("users")
 }
 
 model LeaveRequest {
-  id              String         @id @default(uuid())
-  userId          String         @map("user_id")
-  leaveType       LeaveType      @map("leave_type")
-  startDate       DateTime       @map("start_date") @db.Date
-  endDate         DateTime       @map("end_date") @db.Date
-  totalDays       Decimal        @map("total_days") @db.Decimal(3, 1)
-  reason          String
-  status          LeaveStatus    @default(pending)
-  submittedAt     DateTime       @default(now()) @map("submitted_at")
-  approvedBy      String?        @map("approved_by")
-  approvedAt      DateTime?      @map("approved_at")
-  rejectedReason  String?        @map("rejected_reason")
-  isHalfDay       Boolean        @default(false) @map("is_half_day")
-  halfDayPeriod   HalfDayPeriod? @map("half_day_period")
-  comments        String?
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
+  id             String         @id @default(uuid())
+  userId         String         @map("user_id")
+  leaveType      LeaveType      @map("leave_type")
+  startDate      DateTime       @map("start_date") @db.Date
+  endDate        DateTime       @map("end_date") @db.Date
+  totalDays      Decimal        @map("total_days") @db.Decimal(3, 1)
+  reason         String
+  status         LeaveStatus    @default(pending)
+  isPaid         Boolean        @default(true) @map("is_paid")
+  submittedAt    DateTime       @default(now()) @map("submitted_at")
+  approvedBy     String?        @map("approved_by")
+  approvedAt     DateTime?      @map("approved_at")
+  rejectedReason String?        @map("rejected_reason")
+  isHalfDay      Boolean        @default(false) @map("is_half_day")
+  halfDayPeriod  HalfDayPeriod? @map("half_day_period")
+  comments       String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
 
   // Relations
-  user            User           @relation(fields: [userId], references: [id])
-  approver        User?          @relation("ApprovedLeaves", fields: [approvedBy], references: [id])
-  documents       LeaveDocument[]
+  user             User              @relation(fields: [userId], references: [id])
+  approver         User?             @relation("ApprovedLeaves", fields: [approvedBy], references: [id])
+  documents        LeaveDocument[]
   salaryDeductions SalaryDeduction[]
 
   @@map("leave_requests")
 }
 
 model LeaveBalance {
-  id              String  @id @default(uuid())
-  userId          String  @map("user_id")
-  year            Int
-  annualTotal     Int     @default(25) @map("annual_total")
-  annualUsed      Int     @default(0) @map("annual_used")
-  annualRemaining Int     @map("annual_remaining") @default(0)
-  sickTotal       Int     @default(10) @map("sick_total")
-  sickUsed        Int     @default(0) @map("sick_used")
-  sickRemaining   Int     @map("sick_remaining") @default(0)
-  casualTotal     Int     @default(8) @map("casual_total")
-  casualUsed      Int     @default(0) @map("casual_used")
-  casualRemaining Int     @map("casual_remaining") @default(0)
-  maternityTotal  Int     @default(90) @map("maternity_total")
-  maternityUsed   Int     @default(0) @map("maternity_used")
-  maternityRemaining Int  @map("maternity_remaining") @default(0)
-  paternityTotal  Int     @default(15) @map("paternity_total")
-  paternityUsed   Int     @default(0) @map("paternity_used")
-  paternityRemaining Int  @map("paternity_remaining") @default(0)
-  emergencyTotal  Int     @default(5) @map("emergency_total")
-  emergencyUsed   Int     @default(0) @map("emergency_used")
-  emergencyRemaining Int  @map("emergency_remaining") @default(0)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  year               Int
+  annualTotal        Int      @default(25) @map("annual_total")
+  annualUsed         Int      @default(0) @map("annual_used")
+  annualRemaining    Int      @default(0) @map("annual_remaining")
+  sickTotal          Int      @default(10) @map("sick_total")
+  sickUsed           Int      @default(0) @map("sick_used")
+  sickRemaining      Int      @default(0) @map("sick_remaining")
+  casualTotal        Int      @default(8) @map("casual_total")
+  casualUsed         Int      @default(0) @map("casual_used")
+  casualRemaining    Int      @default(0) @map("casual_remaining")
+  maternityTotal     Int      @default(90) @map("maternity_total")
+  maternityUsed      Int      @default(0) @map("maternity_used")
+  maternityRemaining Int      @default(0) @map("maternity_remaining")
+  paternityTotal     Int      @default(15) @map("paternity_total")
+  paternityUsed      Int      @default(0) @map("paternity_used")
+  paternityRemaining Int      @default(0) @map("paternity_remaining")
+  emergencyTotal     Int      @default(5) @map("emergency_total")
+  emergencyUsed      Int      @default(0) @map("emergency_used")
+  emergencyRemaining Int      @default(0) @map("emergency_remaining")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   // Relations
-  user            User    @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, year])
   @@map("leave_balances")
 }
 
-model LeavePolicy {
-  id                    String  @id @default(uuid())
-  leaveType             String  @unique @map("leave_type")
-  totalDaysPerYear      Int     @map("total_days_per_year")
-  canCarryForward       Boolean @default(false) @map("can_carry_forward")
-  maxCarryForwardDays   Int?    @map("max_carry_forward_days")
-  requiresApproval      Boolean @default(true) @map("requires_approval")
-  allowHalfDay          Boolean @default(true) @map("allow_half_day")
-  description           String?
-  isActive              Boolean @default(true) @map("is_active")
-  createdBy             String  @map("created_by")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+model LeaveAccrual {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  accrualDate       DateTime @map("accrual_date") // Date when leave was accrued
+  leaveType         String   @map("leave_type")
+  daysAccrued       Decimal  @map("days_accrued") @db.Decimal(5, 2) // Can be fractional (e.g., 2.08 for monthly accrual)
+  previousTotal     Int      @map("previous_total")
+  newTotal          Int      @map("new_total")
+  previousRemaining Int      @map("previous_remaining")
+  newRemaining      Int      @map("new_remaining")
+  year              Int      // Year for which leave was accrued
+  month             Int      // Month (1-12) for which leave was accrued
+  notes             String?  // Optional notes about the accrual
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   // Relations
-  creator               User    @relation("CreatedPolicies", fields: [createdBy], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, accrualDate])
+  @@index([accrualDate])
+  @@index([year, month])
+  @@map("leave_accruals")
+}
+
+model WorkingDaysCalendar {
+  id                String   @id @default(uuid())
+  year              Int
+  month             Int      // 1-12
+  totalDays         Int      @map("total_days")
+  workingDays       Int      @map("working_days")
+  weekends          Int
+  holidays          Int
+  workingDaysList   Json     @map("working_days_list") // Array of ISO date strings
+  weekendDaysList   Json     @map("weekend_days_list") // Array of ISO date strings
+  holidayDaysList   Json     @map("holiday_days_list") // Array of ISO date strings
+  workingDaysPerWeek Json    @map("working_days_per_week") // Array of day numbers [1,2,3,4,5] for Mon-Fri
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([year, month], name: "year_month")
+  @@index([year, month])
+  @@map("working_days_calendars")
+}
+
+model LeavePolicy {
+  id                  String   @id @default(uuid())
+  leaveType           String   @unique @map("leave_type")
+  totalDaysPerYear    Int      @map("total_days_per_year")
+  isPaid              Boolean  @default(true) @map("is_paid")
+  canCarryForward     Boolean  @default(false) @map("can_carry_forward")
+  maxCarryForwardDays Int?     @map("max_carry_forward_days")
+  requiresApproval    Boolean  @default(true) @map("requires_approval")
+  allowHalfDay        Boolean  @default(true) @map("allow_half_day")
+  description         String?
+  isActive            Boolean  @default(true) @map("is_active")
+  createdBy           String   @map("created_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  creator User @relation("CreatedPolicies", fields: [createdBy], references: [id])
 
   @@map("leave_policies")
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  userId      String   @map("user_id")
-  userName    String   @map("user_name")
-  action      String
-  targetId    String?  @map("target_id")
-  targetType  String?  @map("target_type")
-  details     String?
-  ipAddress   String?  @map("ip_address") @db.Inet
-  userAgent   String?  @map("user_agent")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  userName      String   @map("user_name")
+  action        String   // create, update, delete, view, export, etc.
+  targetId      String?  @map("target_id")
+  targetType    String?  @map("target_type") // workspace, board, item, column, cell, file, etc.
+  resourceId    String?  @map("resource_id") // workspaceId, boardId for context
+  resourceType  String?  @map("resource_type") // workspace, board for context
+  fieldChanges  Json?    @map("field_changes") // Array of { field, oldValue, newValue }
+  oldData       Json?    @map("old_data") // Snapshot of data before change
+  newData       Json?    @map("new_data") // Snapshot of data after change
+  details       Json?    // Additional metadata
+  ipAddress     String?  @map("ip_address") @db.Inet
+  userAgent     String?  @map("user_agent")
+  requestMethod String?  @map("request_method") // GET, POST, PUT, DELETE, etc.
+  requestPath   String?  @map("request_path") // API endpoint
+  statusCode    Int?     @map("status_code") // HTTP status code
+  createdAt     DateTime @default(now()) @map("created_at")
 
   // Relations
-  user        User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([targetType, targetId])
+  @@index([resourceType, resourceId])
+  @@index([action])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
 model LeaveDocument {
-  id              String        @id @default(uuid())
-  leaveRequestId  String        @map("leave_request_id")
-  fileName        String        @map("file_name")
-  filePath        String        @map("file_path")
-  fileSize        Int           @map("file_size")
-  mimeType        String        @map("mime_type")
-  uploadedAt      DateTime      @default(now()) @map("uploaded_at")
+  id             String   @id @default(uuid())
+  leaveRequestId String   @map("leave_request_id")
+  fileName       String   @map("file_name")
+  filePath       String   @map("file_path")
+  fileSize       Int      @map("file_size")
+  mimeType       String   @map("mime_type")
+  uploadedAt     DateTime @default(now()) @map("uploaded_at")
 
   // Relations
-  leaveRequest    LeaveRequest  @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  leaveRequest LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
 
   @@map("leave_documents")
 }
@@ -216,29 +308,29 @@ model Holiday {
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
   // Relations
-  creator     User        @relation("CreatedHolidays", fields: [createdBy], references: [id])
+  creator User @relation("CreatedHolidays", fields: [createdBy], references: [id])
 
   @@unique([name, date], name: "name_date")
   @@map("holidays")
 }
 
 model AttendanceRecord {
-  id              String           @id @default(uuid())
-  userId          String           @map("user_id")
-  date            DateTime         @db.Date
-  checkInTime     DateTime?        @map("check_in_time")
-  checkOutTime    DateTime?        @map("check_out_time")
-  status          AttendanceStatus @default(present)
-  hoursWorked     Decimal          @default(0) @map("hours_worked") @db.Decimal(4, 2)
-  overtimeHours   Decimal          @default(0) @map("overtime_hours") @db.Decimal(4, 2)
-  notes           String?
-  isHoliday       Boolean          @default(false) @map("is_holiday")
-  isWeekend       Boolean          @default(false) @map("is_weekend")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  id            String           @id @default(uuid())
+  userId        String           @map("user_id")
+  date          DateTime         @db.Date
+  checkInTime   DateTime?        @map("check_in_time")
+  checkOutTime  DateTime?        @map("check_out_time")
+  status        AttendanceStatus @default(present)
+  hoursWorked   Decimal          @default(0) @map("hours_worked") @db.Decimal(4, 2)
+  overtimeHours Decimal          @default(0) @map("overtime_hours") @db.Decimal(4, 2)
+  notes         String?
+  isHoliday     Boolean          @default(false) @map("is_holiday")
+  isWeekend     Boolean          @default(false) @map("is_weekend")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
 
   // Relations
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([date])
@@ -247,21 +339,21 @@ model AttendanceRecord {
 }
 
 model AttendancePolicy {
-  id                      String    @id @default(uuid())
-  name                    String
-  workingHoursPerDay      Decimal   @default(8.00) @map("working_hours_per_day") @db.Decimal(4, 2)
-  lateThresholdMinutes    Int       @default(15) @map("late_threshold_minutes")
-  overtimeThresholdHours  Decimal   @default(0.00) @map("overtime_threshold_hours") @db.Decimal(4, 2)
-  allowFlexibleHours      Boolean   @default(false) @map("allow_flexible_hours")
-  requireCheckIn          Boolean   @default(true) @map("require_check_in")
-  requireCheckOut         Boolean   @default(true) @map("require_check_out")
-  isActive                Boolean   @default(true) @map("is_active")
-  createdBy               String    @map("created_by")
-  createdAt               DateTime  @default(now()) @map("created_at")
-  updatedAt               DateTime  @updatedAt @map("updated_at")
+  id                     String   @id @default(uuid())
+  name                   String
+  workingHoursPerDay     Decimal  @default(8.00) @map("working_hours_per_day") @db.Decimal(4, 2)
+  lateThresholdMinutes   Int      @default(15) @map("late_threshold_minutes")
+  overtimeThresholdHours Decimal  @default(0.00) @map("overtime_threshold_hours") @db.Decimal(4, 2)
+  allowFlexibleHours     Boolean  @default(false) @map("allow_flexible_hours")
+  requireCheckIn         Boolean  @default(true) @map("require_check_in")
+  requireCheckOut        Boolean  @default(true) @map("require_check_out")
+  isActive               Boolean  @default(true) @map("is_active")
+  createdBy              String   @map("created_by")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   // Relations
-  creator                 User      @relation("CreatedAttendancePolicies", fields: [createdBy], references: [id])
+  creator User @relation("CreatedAttendancePolicies", fields: [createdBy], references: [id])
 
   @@map("attendance_policies")
 }
@@ -283,19 +375,19 @@ enum DeductionType {
 }
 
 model EmployeeSalary {
-  id              String        @id @default(uuid())
-  userId          String        @map("user_id")
-  baseSalary      Decimal       @map("base_salary") @db.Decimal(10, 2)
-  hourlyRate      Decimal?      @map("hourly_rate") @db.Decimal(8, 2)
-  currency        String        @default("USD")
-  effectiveDate   DateTime      @map("effective_date") @db.Date
-  endDate         DateTime?     @map("end_date") @db.Date
-  isActive        Boolean       @default(true) @map("is_active")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  baseSalary    Decimal   @map("base_salary") @db.Decimal(10, 2)
+  hourlyRate    Decimal?  @map("hourly_rate") @db.Decimal(8, 2)
+  currency      String    @default("USD")
+  effectiveDate DateTime  @map("effective_date") @db.Date
+  endDate       DateTime? @map("end_date") @db.Date
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   monthlySalaries MonthlySalary[]
 
   @@index([userId])
@@ -304,29 +396,29 @@ model EmployeeSalary {
 }
 
 model MonthlySalary {
-  id                String        @id @default(uuid())
-  employeeSalaryId  String        @map("employee_salary_id")
-  userId            String        @map("user_id")
-  year              Int
-  month             Int
-  baseSalary        Decimal       @map("base_salary") @db.Decimal(10, 2)
-  grossSalary       Decimal       @map("gross_salary") @db.Decimal(10, 2)
-  totalDeductions   Decimal       @default(0) @map("total_deductions") @db.Decimal(10, 2)
-  netSalary         Decimal       @map("net_salary") @db.Decimal(10, 2)
-  status            SalaryStatus  @default(draft)
-  calculatedAt      DateTime?     @map("calculated_at")
-  approvedAt        DateTime?     @map("approved_at")
-  paidAt            DateTime?     @map("paid_at")
-  approvedBy        String?       @map("approved_by")
-  notes             String?
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
+  id               String       @id @default(uuid())
+  employeeSalaryId String       @map("employee_salary_id")
+  userId           String       @map("user_id")
+  year             Int
+  month            Int
+  baseSalary       Decimal      @map("base_salary") @db.Decimal(10, 2)
+  grossSalary      Decimal      @map("gross_salary") @db.Decimal(10, 2)
+  totalDeductions  Decimal      @default(0) @map("total_deductions") @db.Decimal(10, 2)
+  netSalary        Decimal      @map("net_salary") @db.Decimal(10, 2)
+  status           SalaryStatus @default(draft)
+  calculatedAt     DateTime?    @map("calculated_at")
+  approvedAt       DateTime?    @map("approved_at")
+  paidAt           DateTime?    @map("paid_at")
+  approvedBy       String?      @map("approved_by")
+  notes            String?
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
 
   // Relations
-  employeeSalary    EmployeeSalary @relation(fields: [employeeSalaryId], references: [id], onDelete: Cascade)
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  approver          User?         @relation("ApprovedSalaries", fields: [approvedBy], references: [id])
-  deductions        SalaryDeduction[]
+  employeeSalary EmployeeSalary    @relation(fields: [employeeSalaryId], references: [id], onDelete: Cascade)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approver       User?             @relation("ApprovedSalaries", fields: [approvedBy], references: [id])
+  deductions     SalaryDeduction[]
 
   @@unique([userId, year, month])
   @@index([year, month])
@@ -345,10 +437,583 @@ model SalaryDeduction {
   createdAt       DateTime      @default(now()) @map("created_at")
 
   // Relations
-  monthlySalary   MonthlySalary @relation(fields: [monthlySalaryId], references: [id], onDelete: Cascade)
-  leaveRequest    LeaveRequest? @relation(fields: [leaveRequestId], references: [id])
+  monthlySalary MonthlySalary @relation(fields: [monthlySalaryId], references: [id], onDelete: Cascade)
+  leaveRequest  LeaveRequest? @relation(fields: [leaveRequestId], references: [id])
 
   @@index([monthlySalaryId])
   @@index([type])
   @@map("salary_deductions")
+}
+
+// ============================================
+// INVOICE SYSTEM MODELS (Monday.com-like)
+// ============================================
+
+enum WorkspaceRole {
+  owner
+  admin
+  finance
+  member
+  viewer
+}
+
+enum BoardRole {
+  owner
+  admin
+  editor
+  viewer
+}
+
+enum ColumnRole {
+  owner
+  editor
+  viewer
+}
+
+enum BoardType {
+  invoices
+  payments
+  clients
+  custom
+}
+
+enum ColumnType {
+  TEXT
+  LONG_TEXT
+  EMAIL
+  PHONE
+  NUMBER
+  CURRENCY
+  PERCENTAGE
+  DATE
+  DATETIME
+  WEEK
+  MONTH
+  YEAR
+  CHECKBOX
+  DROPDOWN
+  MULTI_SELECT
+  RADIO
+  PEOPLE
+  STATUS
+  TIMELINE
+  FILE
+  FORMULA
+  AUTO_NUMBER
+  LINK
+  RATING
+  VOTE
+  PROGRESS
+  LOCATION
+  MIRROR
+}
+
+enum ViewType {
+  TABLE
+  KANBAN
+  CALENDAR
+  TIMELINE
+  GALLERY
+  DASHBOARD
+  FORM
+}
+
+enum ApprovalLevel {
+  LEVEL_1
+  LEVEL_2
+  LEVEL_3
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+model Workspace {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  description String?
+  logo        String?
+  settings    Json?     @default("{}") // Timezone, currency, language, etc.
+  createdBy   String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // Relations
+  creator          User              @relation("CreatedWorkspaces", fields: [createdBy], references: [id])
+  boards           Board[]
+  members          WorkspaceMember[]
+  invites          WorkspaceInvite[]
+  dashboards       Dashboard[]
+  reports          Report[]
+  templates        BoardTemplate[]
+  invoiceTemplates InvoiceTemplate[]
+
+  @@index([slug])
+  @@index([createdBy])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String        @map("workspace_id")
+  userId      String        @map("user_id")
+  role        WorkspaceRole
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model WorkspaceInvite {
+  id          String        @id @default(uuid())
+  workspaceId String        @map("workspace_id")
+  email       String
+  role        WorkspaceRole
+  token       String        @unique
+  invitedBy   String        @map("invited_by")
+  expiresAt   DateTime      @map("expires_at")
+  acceptedAt  DateTime?     @map("accepted_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter   User      @relation("WorkspaceInvites", fields: [invitedBy], references: [id])
+
+  @@unique([workspaceId, email])
+  @@index([token])
+  @@index([workspaceId])
+  @@map("workspace_invites")
+}
+
+model Board {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  name        String
+  type        BoardType
+  description String?
+  color       String?
+  icon        String?
+  isPublic    Boolean   @default(false) @map("is_public")
+  isPrivate   Boolean   @default(false) @map("is_private") // Private board (owner only)
+  isArchived  Boolean   @default(false) @map("is_archived")
+  permissions Json?     @default("{}") // Permission settings
+  settings    Json?     @default("{}") // Board-specific settings
+  createdBy   String?   @map("created_by") // Board owner
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // Relations
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator     User?         @relation("CreatedBoards", fields: [createdBy], references: [id])
+  members     BoardMember[]
+  columns     Column[]
+  items       Item[]
+  views       View[]
+  automations Automation[]
+  reports     Report[]
+
+  @@index([workspaceId])
+  @@index([type])
+  @@index([createdBy])
+  @@map("boards")
+}
+
+model BoardMember {
+  id        String    @id @default(uuid())
+  boardId   String    @map("board_id")
+  userId    String    @map("user_id")
+  role      BoardRole
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user  User  @relation("BoardMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, userId])
+  @@index([boardId])
+  @@index([userId])
+  @@map("board_members")
+}
+
+model Column {
+  id           String     @id @default(uuid())
+  boardId      String     @map("board_id")
+  name         String
+  type         ColumnType
+  position     Int // Display order
+  width        Int?       @default(200)
+  required     Boolean    @default(false)
+  defaultValue Json?      @map("default_value") // Default value based on type
+  settings     Json?      @default("{}") // Type-specific settings (options, formula, cellPermissions, etc.)
+  permissions  Json?      @default("{}") // Column-level permissions
+  isHidden     Boolean    @default(false) @map("is_hidden")
+  createdBy    String?    @map("created_by") // Column owner
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cells   Cell[]
+  creator User?  @relation("CreatedColumns", fields: [createdBy], references: [id])
+
+  @@unique([boardId, name])
+  @@index([boardId])
+  @@index([type])
+  @@index([createdBy])
+  @@map("columns")
+}
+
+model Item {
+  id        String    @id @default(uuid())
+  boardId   String    @map("board_id")
+  name      String // Primary identifier (invoice title)
+  status    String? // Status column value (optional, can be in cells)
+  createdBy String    @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Relations
+  board      Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  creator    User       @relation("CreatedItems", fields: [createdBy], references: [id])
+  cells      Cell[]
+  comments   Comment[]
+  files      ItemFile[]
+  activities Activity[]
+  approvals  Approval[]
+
+  @@index([boardId])
+  @@index([status])
+  @@index([createdBy])
+  @@map("items")
+}
+
+model Cell {
+  id        String   @id @default(uuid())
+  itemId    String   @map("item_id")
+  columnId  String   @map("column_id")
+  value     Json? // Flexible JSON storage
+  version   Int      @default(1) // For versioning
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  column Column @relation(fields: [columnId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, columnId])
+  @@index([itemId])
+  @@index([columnId])
+  @@map("cells")
+}
+
+model Approval {
+  id         String         @id @default(uuid())
+  itemId     String         @map("item_id")
+  level      ApprovalLevel // 1 = Sir Salman, 2 = Radhika, 3 = Finance
+  approverId String?        @map("approver_id")
+  status     ApprovalStatus
+  comments   String?
+  approvedAt DateTime?      @map("approved_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  item     Item  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  approver User? @relation("Approvals", fields: [approverId], references: [id])
+
+  @@index([itemId])
+  @@index([level])
+  @@index([status])
+  @@map("approvals")
+}
+
+model View {
+  id        String   @id @default(uuid())
+  boardId   String   @map("board_id")
+  name      String
+  type      ViewType
+  settings  Json?    @default("{}") // View-specific settings (filters, sorting, grouping)
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@index([type])
+  @@map("views")
+}
+
+model Automation {
+  id         String   @id @default(uuid())
+  boardId    String   @map("board_id")
+  name       String
+  trigger    Json // Trigger configuration
+  actions    Json // Actions to execute
+  conditions Json?    @default("{}") // Additional conditions
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@index([isActive])
+  @@map("automations")
+}
+
+model Comment {
+  id         String    @id @default(uuid())
+  itemId     String    @map("item_id")
+  userId     String    @map("user_id")
+  content    String // Rich text content (HTML)
+  mentions   String[]  @default([]) // User IDs mentioned
+  reactions  Json?     @default("{}") // { emoji: [userId, ...] }
+  isPrivate  Boolean   @default(false) @map("is_private")
+  isPinned   Boolean   @default(false) @map("is_pinned")
+  isResolved Boolean   @default(false) @map("is_resolved")
+  resolvedAt DateTime? @map("resolved_at")
+  resolvedBy String?   @map("resolved_by")
+  parentId   String?   @map("parent_id") // For threaded replies
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  // Relations
+  item    Item          @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user    User          @relation("Comments", fields: [userId], references: [id])
+  parent  Comment?      @relation("CommentReplies", fields: [parentId], references: [id])
+  replies Comment[]     @relation("CommentReplies")
+  files   CommentFile[]
+
+  resolvedByUser User? @relation("ResolvedComments", fields: [resolvedBy], references: [id])
+
+  @@index([itemId])
+  @@index([userId])
+  @@index([parentId])
+  @@index([isPinned])
+  @@index([isResolved])
+  @@map("comments")
+}
+
+model CommentFile {
+  id         String   @id @default(uuid())
+  commentId  String   @map("comment_id")
+  fileName   String   @map("file_name")
+  filePath   String   @map("file_path")
+  fileSize   Int      @map("file_size")
+  mimeType   String   @map("mime_type")
+  uploadedBy String   @map("uploaded_by")
+  uploadedAt DateTime @default(now()) @map("uploaded_at")
+
+  // Relations
+  comment  Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  uploader User    @relation("CommentFiles", fields: [uploadedBy], references: [id])
+
+  @@index([commentId])
+  @@map("comment_files")
+}
+
+model ItemFile {
+  id              String   @id @default(uuid())
+  itemId          String   @map("item_id")
+  fileName        String   @map("file_name")
+  filePath        String   @map("file_path")
+  fileSize        Int      @map("file_size")
+  mimeType        String   @map("mime_type")
+  uploadedBy      String   @map("uploaded_by")
+  uploadedAt      DateTime @default(now()) @map("uploaded_at")
+  version         Int      @default(1) // Version tracking
+  folder          String? // Folder path for organization (e.g., "documents/invoices")
+  storageProvider String   @default("local") @map("storage_provider") // "local" | "s3" | "cloud"
+  storageKey      String?  @map("storage_key") // Key/identifier in cloud storage (S3 key, etc.)
+  parentFileId    String?  @map("parent_file_id") // For version tracking - points to original file
+  isLatest        Boolean  @default(true) @map("is_latest") // Whether this is the latest version
+
+  // Relations
+  item       Item       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  uploader   User       @relation("ItemFiles", fields: [uploadedBy], references: [id])
+  parentFile ItemFile?  @relation("FileVersions", fields: [parentFileId], references: [id])
+  versions   ItemFile[] @relation("FileVersions")
+
+  @@index([itemId])
+  @@index([parentFileId])
+  @@index([folder])
+  @@map("item_files")
+}
+
+model Activity {
+  id        String   @id @default(uuid())
+  itemId    String   @map("item_id")
+  userId    String   @map("user_id")
+  action    String // created, updated, deleted, status_changed, etc.
+  fieldName String?  @map("field_name")
+  oldValue  Json?    @map("old_value")
+  newValue  Json?    @map("new_value")
+  details   Json?    @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user User @relation("Activities", fields: [userId], references: [id])
+
+  @@index([itemId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+model Dashboard {
+  id          String   @id @default(uuid())
+  workspaceId String   @map("workspace_id")
+  name        String
+  description String?
+  widgets     Json     @default("[]") // Widget configurations with positions
+  filters     Json?    @default("{}") // Saved filter settings (date range, status, workspace/board)
+  layout      Json?    @default("{}") // Dashboard layout configuration
+  isPublic    Boolean  @default(false) @map("is_public")
+  sharedWith  Json?    @default("[]") @map("shared_with") // Array of user IDs or role names
+  createdBy   String   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User      @relation("CreatedDashboards", fields: [createdBy], references: [id])
+
+  @@index([workspaceId])
+  @@index([createdBy])
+  @@index([isPublic])
+  @@map("dashboards")
+}
+
+model Report {
+  id          String     @id @default(uuid())
+  workspaceId String?    @map("workspace_id")
+  boardId     String?    @map("board_id")
+  name        String
+  type        ReportType
+  config      Json       @default("{}") // Report configuration (columns, filters, grouping)
+  schedule    Json? // Schedule configuration (cron, email recipients)
+  isActive    Boolean    @default(true) @map("is_active")
+  createdBy   String     @map("created_by")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  lastRunAt   DateTime?  @map("last_run_at")
+
+  // Relations
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  board     Board?     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  creator   User       @relation("CreatedReports", fields: [createdBy], references: [id])
+
+  @@index([workspaceId])
+  @@index([boardId])
+  @@index([createdBy])
+  @@index([type])
+  @@map("reports")
+}
+
+enum ReportType {
+  invoice_summary
+  approval_status
+  payment_status
+  aging
+  custom
+}
+
+model BoardTemplate {
+  id          String    @id @default(uuid())
+  workspaceId String?   @map("workspace_id")
+  name        String
+  description String?
+  category    String?
+  coverImage  String?   @map("cover_image")
+  boardType   BoardType @map("board_type")
+  config      Json      @default("{}") // board settings, permissions, default view
+  columns     Json      @default("[]") // array of column definitions
+  createdBy   String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User       @relation("CreatedTemplates", fields: [createdBy], references: [id])
+
+  @@index([workspaceId])
+  @@index([boardType])
+  @@map("board_templates")
+}
+
+model InvoiceTemplate {
+  id          String   @id @default(uuid())
+  workspaceId String?  @map("workspace_id")
+  name        String
+  description String?
+  config      Json     @default("{}") // Invoice template configuration
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User       @relation("CreatedInvoiceTemplates", fields: [createdBy], references: [id])
+
+  @@index([workspaceId])
+  @@index([isDefault])
+  @@map("invoice_templates")
+}
+
+enum NotificationType {
+  approval_requested
+  approval_approved
+  approval_rejected
+  changes_requested
+  approval_complete
+  approval_reminder
+  approval_deadline_approaching
+  approval_deadline_passed
+  mention
+  assignment
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  userId      String           @map("user_id")
+  type        NotificationType
+  title       String
+  message     String
+  link        String? // URL to navigate to
+  metadata    Json?            @default("{}") // Additional data (approvalId, itemId, etc.)
+  read        Boolean          @default(false)
+  readAt      DateTime?        @map("read_at")
+  emailSent   Boolean          @default(false) @map("email_sent")
+  emailSentAt DateTime?        @map("email_sent_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([read])
+  @@index([createdAt])
+  @@map("notifications")
 }

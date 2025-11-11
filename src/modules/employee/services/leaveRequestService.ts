@@ -41,12 +41,14 @@ export class LeaveRequestService {
         throw new Error('End date cannot be before start date');
       }
 
-      // Calculate total days
-      const timeDiff = endDate.getTime() - startDate.getTime();
-      const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1; // +1 to include both start and end dates
-
-      // Adjust for half day
-      const totalDays = formData.isHalfDay ? 0.5 : daysDiff;
+      // Calculate total days using automated working days calculation (excludes weekends and holidays)
+      let totalDays: number;
+      if (formData.isHalfDay) {
+        totalDays = 0.5;
+      } else {
+        const { WorkingDaysService } = await import('../../../services/workingDaysService');
+        totalDays = await WorkingDaysService.calculateWorkingDaysBetween(startDate, endDate);
+      }
 
       // Apply business rules validation
       console.log('🔍 LeaveRequestService: Validating business rules...');
@@ -114,12 +116,30 @@ export class LeaveRequestService {
               endDate: { gte: startDate }
             }
           ]
+        },
+        orderBy: {
+          submittedAt: 'desc'
         }
       });
 
       if (overlappingRequest) {
-        throw new Error('You already have a leave request for this period');
+        const existingStartDate = new Date(overlappingRequest.startDate).toLocaleDateString();
+        const existingEndDate = new Date(overlappingRequest.endDate).toLocaleDateString();
+        throw new Error(
+          `You already have a ${overlappingRequest.status} leave request for this period. ` +
+          `Existing request: ${existingStartDate} to ${existingEndDate}. ` +
+          `Please choose different dates or wait for the existing request to be processed.`
+        );
       }
+
+      // Fetch leave policy to determine if leave is paid
+      const leavePolicy = await prisma.leavePolicy.findUnique({
+        where: { leaveType: formData.leaveType },
+        select: { isPaid: true }
+      });
+      
+      // Default to true (paid) if policy not found
+      const isPaid = leavePolicy?.isPaid ?? true;
 
       // Create leave request
       const leaveRequest = await prisma.leaveRequest.create({
@@ -130,6 +150,7 @@ export class LeaveRequestService {
           endDate,
           totalDays: totalDays.toString(), // Convert to string for Decimal type
           reason: formData.reason,
+          isPaid,
           isHalfDay: formData.isHalfDay || false,
           halfDayPeriod: formData.halfDayPeriod as any || null, // Cast to Prisma enum
           status: 'pending',
@@ -156,6 +177,7 @@ export class LeaveRequestService {
         days: Number(leaveRequest.totalDays),
         reason: leaveRequest.reason,
         status: leaveRequest.status as 'pending' | 'approved' | 'rejected',
+        isPaid: leaveRequest.isPaid,
         priority: this.determinePriority(leaveRequest),
         emergencyContact: formData.emergencyContact || undefined,
         workHandover: formData.workHandover || undefined,
@@ -238,6 +260,7 @@ export class LeaveRequestService {
         days: Number(request.totalDays),
         reason: request.reason,
         status: request.status as 'pending' | 'approved' | 'rejected',
+        isPaid: request.isPaid ?? true, // Default to paid if not set
         priority: this.determinePriority(request),
         emergencyContact: undefined, // Not in schema
         workHandover: undefined, // Not in schema
@@ -300,6 +323,7 @@ export class LeaveRequestService {
         days: Number(request.totalDays),
         reason: request.reason,
         status: request.status as 'pending' | 'approved' | 'rejected',
+        isPaid: request.isPaid ?? true, // Default to paid if not set
         priority: this.determinePriority(request),
         emergencyContact: undefined, // Not in schema
         workHandover: undefined, // Not in schema
@@ -405,6 +429,7 @@ export class LeaveRequestService {
         days: Number(updatedRequest.totalDays),
         reason: updatedRequest.reason,
         status: updatedRequest.status as 'pending' | 'approved' | 'rejected',
+        isPaid: updatedRequest.isPaid ?? true, // Default to paid if not set
         priority: this.determinePriority(updatedRequest),
         emergencyContact: undefined, // Not in schema
         workHandover: undefined, // Not in schema

@@ -76,6 +76,7 @@ class LeaveRequestService {
                 totalDays: Number(request.totalDays),
                 reason: request.reason,
                 status: request.status,
+                priority: this.determinePriority(request),
                 isHalfDay: request.isHalfDay || false,
                 halfDayPeriod: request.halfDayPeriod || undefined,
                 emergencyContact: undefined,

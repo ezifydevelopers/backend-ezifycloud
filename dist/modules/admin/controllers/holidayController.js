@@ -11,13 +11,11 @@ class HolidayController {
             const adminId = req.user?.id;
             const { type = 'all', year = new Date().getFullYear().toString(), limit = 50, page = 1 } = req.query;
             const skip = (parseInt(page) - 1) * parseInt(limit);
-            const where = {
-                createdBy: adminId
-            };
+            const where = {};
             if (type !== 'all') {
                 where.type = type;
             }
-            if (year) {
+            if (year && year !== 'all') {
                 const startDate = new Date(parseInt(year), 0, 1);
                 const endDate = new Date(parseInt(year), 11, 31);
                 where.date = {
@@ -65,7 +63,7 @@ class HolidayController {
             const adminId = req.user?.id;
             const { id } = req.params;
             const holiday = await prisma_1.default.holiday.findFirst({
-                where: { id, createdBy: adminId },
+                where: { id },
                 include: {
                     creator: {
                         select: { id: true, name: true, email: true }
@@ -99,10 +97,25 @@ class HolidayController {
         }
     }
     static async createHoliday(req, res) {
+        const adminId = req.user?.id;
+        const holidayData = req.body;
         try {
-            const adminId = req.user?.id;
-            const holidayData = req.body;
             console.log('🔍 HolidayController: Creating holiday:', holidayData);
+            const existingHoliday = await prisma_1.default.holiday.findFirst({
+                where: {
+                    name: holidayData.name,
+                    date: new Date(holidayData.date)
+                }
+            });
+            if (existingHoliday) {
+                const response = {
+                    success: false,
+                    message: `A holiday with the name "${holidayData.name}" on ${new Date(holidayData.date).toLocaleDateString()} already exists. Please use a different name or date.`,
+                    data: null
+                };
+                res.status(400).json(response);
+                return;
+            }
             const holiday = await prisma_1.default.holiday.create({
                 data: {
                     ...holidayData,
@@ -122,10 +135,12 @@ class HolidayController {
             res.status(201).json(response);
         }
         catch (error) {
-            console.error('Error creating holiday:', error);
+            console.error('❌ Error creating holiday:', error);
+            console.error('❌ Holiday data received:', holidayData);
+            console.error('❌ Admin ID:', adminId);
             const response = {
                 success: false,
-                message: 'Failed to create holiday',
+                message: `Failed to create holiday: ${error instanceof Error ? error.message : 'Unknown error'}`,
                 data: null
             };
             res.status(500).json(response);
@@ -137,7 +152,7 @@ class HolidayController {
             const { id } = req.params;
             const updateData = req.body;
             const existingHoliday = await prisma_1.default.holiday.findFirst({
-                where: { id, createdBy: adminId }
+                where: { id }
             });
             if (!existingHoliday) {
                 const response = {
@@ -179,7 +194,7 @@ class HolidayController {
             const adminId = req.user?.id;
             const { id } = req.params;
             const existingHoliday = await prisma_1.default.holiday.findFirst({
-                where: { id, createdBy: adminId }
+                where: { id }
             });
             if (!existingHoliday) {
                 const response = {
@@ -216,7 +231,7 @@ class HolidayController {
             const { id } = req.params;
             const { isActive } = req.body;
             const existingHoliday = await prisma_1.default.holiday.findFirst({
-                where: { id, createdBy: adminId }
+                where: { id }
             });
             if (!existingHoliday) {
                 const response = {
@@ -256,16 +271,16 @@ class HolidayController {
     static async getHolidayStats(req, res) {
         try {
             const adminId = req.user?.id;
-            const { year = new Date().getFullYear().toString() } = req.query;
-            const startDate = new Date(parseInt(year), 0, 1);
-            const endDate = new Date(parseInt(year), 11, 31);
-            const where = {
-                createdBy: adminId,
-                date: {
+            const { year = 'all' } = req.query;
+            const where = {};
+            if (year && year !== 'all') {
+                const startDate = new Date(parseInt(year), 0, 1);
+                const endDate = new Date(parseInt(year), 11, 31);
+                where.date = {
                     gte: startDate,
                     lte: endDate
-                }
-            };
+                };
+            }
             const totalHolidays = await prisma_1.default.holiday.count({ where });
             const activeHolidays = await prisma_1.default.holiday.count({
                 where: { ...where, isActive: true }

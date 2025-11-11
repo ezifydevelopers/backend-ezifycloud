@@ -102,11 +102,18 @@ class LeaveRequestService {
             const { status = 'all', leaveType = '', startDate, endDate, page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = filters;
             const skip = (page - 1) * limit;
             const where = {
-                userId: managerId
+                user: {
+                    managerId: managerId
+                }
             };
             if (status !== 'all') {
                 where.status = status;
             }
+            console.log('🔍 ManagerLeaveRequestService: getLeaveRequests called with:', {
+                managerId,
+                filters,
+                where
+            });
             if (leaveType && leaveType !== 'all') {
                 where.leaveType = leaveType;
             }
@@ -117,11 +124,32 @@ class LeaveRequestService {
                 where.endDate = { lte: new Date(endDate) };
             }
             const totalCount = await prisma_1.default.leaveRequest.count({ where });
+            console.log('🔍 ManagerLeaveRequestService: totalCount found:', totalCount);
             const leaveRequests = await prisma_1.default.leaveRequest.findMany({
                 where,
                 skip,
                 take: limit,
-                orderBy: { [sortBy]: sortOrder }
+                orderBy: { [sortBy]: sortOrder },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            department: true
+                        }
+                    }
+                }
+            });
+            console.log('🔍 ManagerLeaveRequestService: leaveRequests found:', leaveRequests.length);
+            console.log('🔍 ManagerLeaveRequestService: leaveRequests data:', leaveRequests);
+            leaveRequests.forEach((request, index) => {
+                console.log(`🔍 Request ${index} department debug:`, {
+                    id: request.id,
+                    employeeName: request.user?.name,
+                    department: request.user?.department,
+                    user: request.user
+                });
             });
             const transformedRequests = leaveRequests.map((request) => ({
                 id: request.id,
@@ -143,7 +171,13 @@ class LeaveRequestService {
                 comments: request.comments || undefined,
                 attachments: [],
                 createdAt: request.createdAt,
-                updatedAt: request.updatedAt
+                updatedAt: request.updatedAt,
+                user: request.user ? {
+                    id: request.user.id,
+                    name: request.user.name,
+                    email: request.user.email,
+                    department: request.user.department
+                } : undefined
             }));
             const totalPages = Math.ceil(totalCount / limit);
             const pagination = {

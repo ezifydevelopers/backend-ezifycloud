@@ -69,5 +69,7 @@ export declare const adminSchemas: {
     salaryQuery: Joi.ObjectSchema<any>;
     generateSalarySchema: Joi.ObjectSchema<any>;
     approveSalarySchema: Joi.ObjectSchema<any>;
+    createEmployeeSalarySchema: Joi.ObjectSchema<any>;
+    updateEmployeeSalarySchema: Joi.ObjectSchema<any>;
 };
 //# sourceMappingURL=index.d.ts.map

@@ -41,7 +41,8 @@ export const authenticateToken = async (
         id: true,
         email: true,
         name: true,
-        role: true
+        role: true,
+        approvalStatus: true
       }
     });
     
@@ -53,7 +54,33 @@ export const authenticateToken = async (
       return;
     }
 
-    req.user = user;
+    // Check approval status (admins are auto-approved, others need approval)
+    if (user.approvalStatus === 'pending' && user.role !== 'admin') {
+      res.status(403).json({
+        success: false,
+        message: 'Your account is pending approval. Please wait for an administrator to approve your access.',
+        requiresApproval: true,
+        approvalStatus: 'pending'
+      });
+      return;
+    }
+
+    if (user.approvalStatus === 'rejected') {
+      res.status(403).json({
+        success: false,
+        message: 'Your account access has been rejected. Please contact an administrator for more information.',
+        requiresApproval: true,
+        approvalStatus: 'rejected'
+      });
+      return;
+    }
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role
+    };
     next();
   } catch (error) {
     res.status(403).json({

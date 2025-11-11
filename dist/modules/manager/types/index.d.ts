@@ -11,15 +11,11 @@ export interface ManagerDashboardStats {
     departmentStats: ManagerDepartmentStats[];
 }
 export interface TeamLeaveBalance {
-    totalAnnual: number;
-    usedAnnual: number;
-    remainingAnnual: number;
-    totalSick: number;
-    usedSick: number;
-    remainingSick: number;
-    totalCasual: number;
-    usedCasual: number;
-    remainingCasual: number;
+    [leaveType: string]: {
+        total: number;
+        used: number;
+        remaining: number;
+    } | number;
     utilizationRate: number;
 }
 export interface UpcomingLeave {
@@ -86,12 +82,7 @@ export interface TeamMember {
     updatedAt: Date;
 }
 export interface LeaveBalance {
-    annual: number;
-    sick: number;
-    casual: number;
-    emergency: number;
-    maternity?: number;
-    paternity?: number;
+    [leaveType: string]: number;
 }
 export interface PerformanceMetrics {
     overall: number;

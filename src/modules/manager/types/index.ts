@@ -464,6 +464,7 @@ export interface LeaveRequestResponse {
   days: number;
   reason: string;
   status: 'pending' | 'approved' | 'rejected';
+  isPaid: boolean;
   priority: 'low' | 'medium' | 'high';
   emergencyContact?: string;
   workHandover?: string;

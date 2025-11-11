@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { EmployeeService } from '../services/employeeService';
 import { ApiResponse } from '../../../types';
 import { EmployeeFilters } from '../types';
+import prisma from '../../../lib/prisma';
 
 export class EmployeeController {
   /**
@@ -535,6 +536,62 @@ export class EmployeeController {
   }
 
   /**
+   * Manually adjust employee leave balance (Admin/Manager only)
+   */
+  static async adjustEmployeeLeaveBalance(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: employeeId } = req.params;
+      const { leaveType, additionalDays, reason } = req.body;
+      const adjustedBy = (req as any).user?.id;
+
+      if (!adjustedBy) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized'
+        });
+        return;
+      }
+
+      if (!leaveType || !additionalDays || additionalDays <= 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid request. leaveType and additionalDays (positive number) are required.'
+        });
+        return;
+      }
+
+      if (!reason || reason.trim().length === 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Reason is required for leave balance adjustments'
+        });
+        return;
+      }
+
+      const result = await EmployeeService.adjustEmployeeLeaveBalance(
+        employeeId,
+        leaveType,
+        additionalDays,
+        reason,
+        adjustedBy,
+        req.query.year ? parseInt(req.query.year as string) : undefined
+      );
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result.leaveBalance
+      });
+    } catch (error) {
+      console.error('Error in adjustEmployeeLeaveBalance:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to adjust employee leave balance'
+      });
+    }
+  }
+
+  /**
    * Get employee leave balance
    */
   static async getEmployeeLeaveBalance(req: Request, res: Response): Promise<void> {
@@ -575,6 +632,434 @@ export class EmployeeController {
       };
 
       res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Process leave accrual for all eligible employees
+   */
+  static async processLeaveAccrual(req: Request, res: Response): Promise<void> {
+    try {
+      const { triggerAccrualProcessing } = await import('../../../services/leaveAccrualScheduler');
+      const result = await triggerAccrualProcessing();
+
+      res.status(200).json({
+        success: true,
+        message: `Leave accrual processing completed. Processed: ${result.processed}, Skipped: ${result.skipped}`,
+        data: result
+      });
+    } catch (error) {
+      console.error('Error in processLeaveAccrual:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to process leave accrual'
+      });
+    }
+  }
+
+  /**
+   * Process leave accrual for a specific employee
+   */
+  static async processEmployeeAccrual(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: employeeId } = req.params;
+      const accrualDate = req.body.accrualDate ? new Date(req.body.accrualDate) : new Date();
+
+      const { LeaveAccrualService } = await import('../../../services/leaveAccrualService');
+      const result = await LeaveAccrualService.processMonthlyAccrual(employeeId, accrualDate);
+
+      if (result.success) {
+        res.status(200).json({
+          success: true,
+          message: result.message,
+          data: result.accruals
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          message: result.message
+        });
+      }
+    } catch (error) {
+      console.error('Error in processEmployeeAccrual:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to process employee leave accrual'
+      });
+    }
+  }
+
+  /**
+   * Get accrual history for an employee
+   */
+  static async getEmployeeAccrualHistory(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: employeeId } = req.params;
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+
+      const { LeaveAccrualService } = await import('../../../services/leaveAccrualService');
+      const history = await LeaveAccrualService.getAccrualHistory(employeeId, year);
+
+      res.status(200).json({
+        success: true,
+        message: 'Accrual history retrieved successfully',
+        data: history
+      });
+    } catch (error) {
+      console.error('Error in getEmployeeAccrualHistory:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to retrieve accrual history'
+      });
+    }
+  }
+
+  /**
+   * Get next accrual date for an employee
+   */
+  static async getNextAccrualDate(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: employeeId } = req.params;
+
+      const { LeaveAccrualService } = await import('../../../services/leaveAccrualService');
+      const nextDate = await LeaveAccrualService.getNextAccrualDate(employeeId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Next accrual date retrieved successfully',
+        data: { nextAccrualDate: nextDate }
+      });
+    } catch (error) {
+      console.error('Error in getNextAccrualDate:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to retrieve next accrual date'
+      });
+    }
+  }
+
+  /**
+   * Approve user access
+   */
+  static async approveUserAccess(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: userId } = req.params;
+      const approverId = (req as any).user?.id;
+
+      if (!approverId) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized'
+        });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true, approvalStatus: true }
+      });
+
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+        return;
+      }
+
+      if (user.approvalStatus === 'approved') {
+        res.status(400).json({
+          success: false,
+          message: 'User is already approved'
+        });
+        return;
+      }
+
+      // Update user approval status
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          approvalStatus: 'approved',
+          approvedBy: approverId,
+          approvedAt: new Date()
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          approvalStatus: true,
+          approvedBy: true,
+          approvedAt: true
+        }
+      });
+
+      // Create audit log
+      const approver = await prisma.user.findUnique({
+        where: { id: approverId },
+        select: { name: true }
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: approverId,
+          userName: approver?.name || 'System',
+          action: 'APPROVE_USER_ACCESS',
+          targetId: userId,
+          targetType: 'user',
+          details: {
+            userName: user.name,
+            userEmail: user.email,
+            previousStatus: user.approvalStatus,
+            newStatus: 'approved'
+          } as any
+        }
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'User access approved successfully',
+        data: updatedUser
+      });
+    } catch (error) {
+      console.error('Error in approveUserAccess:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to approve user access'
+      });
+    }
+  }
+
+  /**
+   * Reject user access
+   */
+  static async rejectUserAccess(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: userId } = req.params;
+      const { reason } = req.body;
+      const approverId = (req as any).user?.id;
+
+      if (!approverId) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized'
+        });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true, approvalStatus: true }
+      });
+
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+        return;
+      }
+
+      if (user.approvalStatus === 'rejected') {
+        res.status(400).json({
+          success: false,
+          message: 'User access is already rejected'
+        });
+        return;
+      }
+
+      // Update user approval status
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          approvalStatus: 'rejected',
+          approvedBy: approverId,
+          approvedAt: new Date(),
+          rejectionReason: reason || 'Access rejected by administrator'
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          approvalStatus: true,
+          approvedBy: true,
+          approvedAt: true,
+          rejectionReason: true
+        }
+      });
+
+      // Create audit log
+      const approver = await prisma.user.findUnique({
+        where: { id: approverId },
+        select: { name: true }
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: approverId,
+          userName: approver?.name || 'System',
+          action: 'REJECT_USER_ACCESS',
+          targetId: userId,
+          targetType: 'user',
+          details: {
+            userName: user.name,
+            userEmail: user.email,
+            previousStatus: user.approvalStatus,
+            newStatus: 'rejected',
+            reason: reason || 'Access rejected by administrator'
+          } as any
+        }
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'User access rejected',
+        data: updatedUser
+      });
+    } catch (error) {
+      console.error('Error in rejectUserAccess:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to reject user access'
+      });
+    }
+  }
+
+  /**
+   * Get pending user approvals
+   */
+  static async getPendingApprovals(req: Request, res: Response): Promise<void> {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const skip = (page - 1) * limit;
+
+      const [users, total] = await Promise.all([
+        prisma.user.findMany({
+          where: {
+            approvalStatus: 'pending',
+            isActive: true
+          },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            department: true,
+            phone: true,
+            createdAt: true,
+            approvalStatus: true
+          },
+          orderBy: {
+            createdAt: 'desc'
+          },
+          skip,
+          take: limit
+        }),
+        prisma.user.count({
+          where: {
+            approvalStatus: 'pending',
+            isActive: true
+          }
+        })
+      ]);
+
+      res.status(200).json({
+        success: true,
+        message: 'Pending approvals retrieved successfully',
+        data: users,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
+    } catch (error) {
+      console.error('Error in getPendingApprovals:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to retrieve pending approvals'
+      });
+    }
+  }
+
+  /**
+   * Complete employee probation
+   */
+  static async completeProbation(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const employee = await EmployeeService.completeProbation(id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Employee probation completed successfully',
+        data: employee
+      });
+    } catch (error) {
+      console.error('Error in completeProbation:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to complete probation'
+      });
+    }
+  }
+
+  /**
+   * Extend employee probation
+   */
+  static async extendProbation(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { additionalDays } = req.body;
+
+      if (!additionalDays || additionalDays <= 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Additional days must be a positive number'
+        });
+        return;
+      }
+
+      const employee = await EmployeeService.extendProbation(id, additionalDays);
+
+      res.status(200).json({
+        success: true,
+        message: 'Employee probation extended successfully',
+        data: employee
+      });
+    } catch (error) {
+      console.error('Error in extendProbation:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to extend probation'
+      });
+    }
+  }
+
+  /**
+   * Terminate employee probation
+   */
+  static async terminateProbation(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const employee = await EmployeeService.terminateProbation(id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Employee probation terminated successfully',
+        data: employee
+      });
+    } catch (error) {
+      console.error('Error in terminateProbation:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to terminate probation'
+      });
     }
   }
 }

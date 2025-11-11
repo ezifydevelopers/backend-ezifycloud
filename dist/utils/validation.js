@@ -3,10 +3,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.validateDateRange = exports.validatePhone = exports.validatePassword = exports.validateEmail = exports.validate = exports.validateParams = exports.validateQuery = exports.validateRequest = void 0;
 const validateRequest = (schema) => {
     return (req, res, next) => {
+        console.log('🔍 Validation: Incoming request body:', JSON.stringify(req.body, null, 2));
         const { error, value } = schema.validate(req.body, {
             abortEarly: false,
             allowUnknown: true,
-            stripUnknown: true
+            stripUnknown: true,
+            convert: true,
         });
         if (error) {
             const errorDetails = error.details.map(detail => ({
@@ -14,6 +16,7 @@ const validateRequest = (schema) => {
                 message: detail.message,
                 value: detail.context?.value
             }));
+            console.error('❌ Validation failed:', errorDetails);
             return res.status(400).json({
                 success: false,
                 message: 'Validation failed',
@@ -21,6 +24,7 @@ const validateRequest = (schema) => {
                 details: errorDetails
             });
         }
+        console.log('✅ Validation passed. Sanitized body:', JSON.stringify(value, null, 2));
         req.body = value;
         return next();
     };

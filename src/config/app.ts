@@ -32,8 +32,80 @@ export const APP_CONFIG = {
 
   // File Upload
   UPLOAD: {
-    MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || '5242880'), // 5MB
+    MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || '5242880'), // 5MB default
     PATH: process.env.UPLOAD_PATH || './uploads',
+    STORAGE_PROVIDER: (process.env.STORAGE_PROVIDER || 'local') as 'local' | 's3',
+    // S3 Configuration
+    S3: {
+      BUCKET: process.env.AWS_S3_BUCKET || '',
+      REGION: process.env.AWS_REGION || 'us-east-1',
+      ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+      SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+    },
+    // Allowed file types by category
+    ALLOWED_TYPES: {
+      // Images
+      IMAGES: {
+        mimeTypes: [
+          'image/jpeg',
+          'image/jpg',
+          'image/png',
+          'image/gif',
+          'image/webp',
+          'image/bmp',
+          'image/svg+xml',
+        ],
+        extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'],
+        maxSize: 10 * 1024 * 1024, // 10MB for images
+      },
+      // Documents
+      DOCUMENTS: {
+        mimeTypes: [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+          'text/csv',
+          'text/plain',
+          'application/rtf',
+        ],
+        extensions: ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt', '.rtf'],
+        maxSize: 50 * 1024 * 1024, // 50MB for documents
+      },
+      // Spreadsheets
+      SPREADSHEETS: {
+        mimeTypes: [
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.template', // .xltx
+          'text/csv',
+          'application/vnd.oasis.opendocument.spreadsheet', // .ods
+        ],
+        extensions: ['.xls', '.xlsx', '.csv', '.xltx', '.ods'],
+        maxSize: 50 * 1024 * 1024, // 50MB for spreadsheets
+      },
+      // Other (configurable)
+      OTHER: {
+        mimeTypes: [
+          'application/zip',
+          'application/x-zip-compressed',
+          'application/x-rar-compressed',
+          'application/json',
+          'application/xml',
+          'text/xml',
+        ],
+        extensions: ['.zip', '.rar', '.json', '.xml'],
+        maxSize: 100 * 1024 * 1024, // 100MB for other files
+      },
+    },
+    // Enable/disable file type categories
+    ENABLED_CATEGORIES: {
+      images: true,
+      documents: true,
+      spreadsheets: true,
+      other: true,
+    },
   },
 
   // Email Configuration

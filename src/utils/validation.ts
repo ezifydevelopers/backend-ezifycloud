@@ -6,10 +6,14 @@ import Joi from 'joi';
  */
 export const validateRequest = (schema: Joi.ObjectSchema) => {
   return (req: Request, res: Response, next: NextFunction) => {
+    // Log the incoming request body for debugging
+    console.log('🔍 Validation: Incoming request body:', JSON.stringify(req.body, null, 2));
+    
     const { error, value } = schema.validate(req.body, {
       abortEarly: false,
       allowUnknown: true,
-      stripUnknown: true
+      stripUnknown: true,
+      convert: true, // Automatically convert types
     });
 
     if (error) {
@@ -19,6 +23,8 @@ export const validateRequest = (schema: Joi.ObjectSchema) => {
         value: detail.context?.value
       }));
 
+      console.error('❌ Validation failed:', errorDetails);
+
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
@@ -26,6 +32,8 @@ export const validateRequest = (schema: Joi.ObjectSchema) => {
         details: errorDetails
       });
     }
+
+    console.log('✅ Validation passed. Sanitized body:', JSON.stringify(value, null, 2));
 
     // Replace req.body with validated and sanitized data
     req.body = value;

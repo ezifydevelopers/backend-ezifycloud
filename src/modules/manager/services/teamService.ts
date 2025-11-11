@@ -805,6 +805,154 @@ export class TeamService {
   }
 
   /**
+   * Manually adjust team member leave balance (Manager only)
+   * This allows managers to add additional leave days beyond the policy limit for their team members
+   */
+  public static async adjustTeamMemberLeaveBalance(
+    managerId: string,
+    memberId: string,
+    leaveType: string,
+    additionalDays: number,
+    reason: string,
+    year?: number
+  ): Promise<any> {
+    try {
+      // Verify the member belongs to this manager
+      const member = await prisma.user.findFirst({
+        where: {
+          id: memberId,
+          managerId: managerId
+        }
+      });
+
+      if (!member) {
+        throw new Error('Team member not found or not under your management');
+      }
+
+      const currentYear = year || new Date().getFullYear();
+      
+      // Validate leave type
+      const policy = await prisma.leavePolicy.findUnique({
+        where: { leaveType }
+      });
+
+      if (!policy) {
+        throw new Error(`No leave policy found for ${leaveType} leave`);
+      }
+
+      // Get or create leave balance
+      let leaveBalance = await prisma.leaveBalance.findUnique({
+        where: {
+          userId_year: {
+            userId: memberId,
+            year: currentYear
+          }
+        }
+      });
+
+      if (!leaveBalance) {
+        // Create new leave balance record
+        leaveBalance = await prisma.leaveBalance.create({
+          data: {
+            userId: memberId,
+            year: currentYear,
+            annualTotal: 25,
+            annualUsed: 0,
+            annualRemaining: 25,
+            sickTotal: 10,
+            sickUsed: 0,
+            sickRemaining: 10,
+            casualTotal: 8,
+            casualUsed: 0,
+            casualRemaining: 8,
+            maternityTotal: 90,
+            maternityUsed: 0,
+            maternityRemaining: 90,
+            paternityTotal: 15,
+            paternityUsed: 0,
+            paternityRemaining: 15,
+            emergencyTotal: 5,
+            emergencyUsed: 0,
+            emergencyRemaining: 5
+          }
+        });
+      }
+
+      // Map leave type to balance field
+      const balanceFieldMap: { [key: string]: { total: string; remaining: string } } = {
+        'annual': { total: 'annualTotal', remaining: 'annualRemaining' },
+        'sick': { total: 'sickTotal', remaining: 'sickRemaining' },
+        'casual': { total: 'casualTotal', remaining: 'casualRemaining' },
+        'maternity': { total: 'maternityTotal', remaining: 'maternityRemaining' },
+        'paternity': { total: 'paternityTotal', remaining: 'paternityRemaining' },
+        'emergency': { total: 'emergencyTotal', remaining: 'emergencyRemaining' }
+      };
+
+      const fields = balanceFieldMap[leaveType];
+      if (!fields) {
+        throw new Error(`Invalid leave type: ${leaveType}`);
+      }
+
+      // Update leave balance - add additional days to total and remaining
+      const currentTotal = (leaveBalance as any)[fields.total];
+      const currentRemaining = (leaveBalance as any)[fields.remaining];
+      
+      const updatedBalance = await prisma.leaveBalance.update({
+        where: {
+          userId_year: {
+            userId: memberId,
+            year: currentYear
+          }
+        },
+        data: {
+          [fields.total]: currentTotal + additionalDays,
+          [fields.remaining]: currentRemaining + additionalDays
+        }
+      });
+
+      // Get manager user name for audit log
+      const managerUser = await prisma.user.findUnique({
+        where: { id: managerId },
+        select: { name: true }
+      });
+
+      // Create audit log entry for the adjustment
+      await prisma.auditLog.create({
+        data: {
+          userId: managerId,
+          userName: managerUser?.name || 'System',
+          action: 'ADJUST_LEAVE_BALANCE',
+          targetId: memberId,
+          targetType: 'user',
+          details: {
+            leaveType,
+            additionalDays,
+            reason,
+            previousTotal: currentTotal,
+            newTotal: currentTotal + additionalDays,
+            previousRemaining: currentRemaining,
+            newRemaining: currentRemaining + additionalDays,
+            year: currentYear,
+            adjustedBy: 'manager'
+          } as any
+        }
+      });
+
+      return {
+        success: true,
+        message: `Successfully added ${additionalDays} ${leaveType} leave days to ${member.name}'s balance`,
+        leaveBalance: updatedBalance
+      };
+    } catch (error) {
+      console.error('Error adjusting team member leave balance:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to adjust team member leave balance');
+    }
+  }
+
+  /**
    * Get member leave balance based on active policies and actual approved requests
    */
   private static async getMemberLeaveBalance(memberId: string): Promise<any> {

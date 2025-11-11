@@ -31,21 +31,21 @@ class DashboardService {
             const departmentStats = await this.getDepartmentStats(startDate, endDate);
             const recentActivities = await this.getRecentActivities(10);
             const monthlyLeaveTrend = await this.getMonthlyLeaveTrend(startDate, endDate);
-            const fallbackData = {
-                totalEmployees: totalEmployees || 10,
-                activeEmployees: activeEmployees || 10,
-                pendingLeaveRequests: pendingLeaveRequests || 5,
-                approvedLeaveRequests: approvedLeaveRequests || 12,
-                rejectedLeaveRequests: rejectedLeaveRequests || 2,
-                totalLeaveDays: totalLeaveDays || 200,
-                usedLeaveDays: usedLeaveDays || 80,
-                upcomingHolidays: upcomingHolidays || 3,
+            const actualData = {
+                totalEmployees,
+                activeEmployees,
+                pendingLeaveRequests,
+                approvedLeaveRequests,
+                rejectedLeaveRequests,
+                totalLeaveDays,
+                usedLeaveDays,
+                upcomingHolidays,
                 departmentStats: departmentStats || [],
                 recentActivities: recentActivities || [],
                 monthlyLeaveTrend: monthlyLeaveTrend || []
             };
-            console.log('🔍 AdminDashboardService: Returning stats:', fallbackData);
-            return fallbackData;
+            console.log('🔍 AdminDashboardService: Returning stats:', actualData);
+            return actualData;
         }
         catch (error) {
             console.error('Error fetching dashboard stats:', error);

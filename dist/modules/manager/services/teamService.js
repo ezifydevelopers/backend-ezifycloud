@@ -698,33 +698,20 @@ class TeamService {
             const totalDays = Array.from(policyMap.values()).reduce((sum, days) => sum + days, 0);
             const totalUsedDays = Object.values(usedDays).reduce((sum, days) => sum + days, 0);
             const totalRemainingDays = totalDays - totalUsedDays;
+            const dynamicLeaveBalance = {};
+            for (const [leaveType, totalDaysPerYear] of policyMap) {
+                dynamicLeaveBalance[leaveType] = {
+                    total: totalDaysPerYear,
+                    used: usedDays[leaveType] || 0,
+                    remaining: result[leaveType] || totalDaysPerYear
+                };
+            }
             const comprehensiveResult = {
                 userId: user.id,
                 userName: user.name,
                 userEmail: user.email,
                 department: user.department || 'Unassigned',
-                leaveBalance: {
-                    annual: {
-                        total: policyMap.get('annual') || 0,
-                        used: usedDays.annual || 0,
-                        remaining: result.annual
-                    },
-                    sick: {
-                        total: policyMap.get('sick') || 0,
-                        used: usedDays.sick || 0,
-                        remaining: result.sick
-                    },
-                    casual: {
-                        total: policyMap.get('casual') || 0,
-                        used: usedDays.casual || 0,
-                        remaining: result.casual
-                    },
-                    emergency: {
-                        total: policyMap.get('emergency') || 0,
-                        used: usedDays.emergency || 0,
-                        remaining: result.emergency
-                    }
-                },
+                leaveBalance: dynamicLeaveBalance,
                 total: {
                     totalDays,
                     usedDays: totalUsedDays,

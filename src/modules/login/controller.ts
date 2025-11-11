@@ -28,6 +28,10 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       select: {
         id: true,
         email: true,
+        approvalStatus: true,
+        approvedBy: true,
+        approvedAt: true,
+        rejectionReason: true,
         name: true,
         role: true,
         department: true,
@@ -35,6 +39,9 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
         profilePicture: true,
         passwordHash: true,
         isActive: true,
+        employeeType: true,
+        region: true,
+        timezone: true,
         createdAt: true,
         updatedAt: true
       }
@@ -65,6 +72,59 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
         message: 'Invalid email or password'
       });
       return;
+    }
+
+    // Check if user is approved (unless admin - admins are auto-approved)
+    // For backward compatibility: Auto-approve existing users who:
+    // 1. Don't have approvalStatus set (null/undefined)
+    // 2. Have 'pending' status but were created before the approval system (created more than 7 days ago)
+    // This allows existing employees to continue logging in
+    const isExistingUser = user.createdAt && new Date(user.createdAt) < new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    
+    if (user.approvalStatus === 'pending' && user.role !== 'admin') {
+      // Auto-approve existing users (created more than 7 days ago) for backward compatibility
+      if (isExistingUser) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { 
+            approvalStatus: 'approved',
+            approvedAt: new Date()
+          }
+        });
+        user.approvalStatus = 'approved';
+      } else {
+        // New users with pending status need admin approval
+        res.status(403).json({
+          success: false,
+          message: 'Your account is pending approval. Please wait for an administrator to approve your access.',
+          requiresApproval: true,
+          approvalStatus: 'pending'
+        });
+        return;
+      }
+    }
+
+    if (user.approvalStatus === 'rejected') {
+      res.status(403).json({
+        success: false,
+        message: 'Your account access has been rejected. Please contact an administrator for more information.',
+        requiresApproval: true,
+        approvalStatus: 'rejected'
+      });
+      return;
+    }
+
+    // Auto-approve existing users who don't have approvalStatus set (backward compatibility)
+    if (!user.approvalStatus && user.role !== 'admin') {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { 
+          approvalStatus: 'approved',
+          approvedAt: new Date()
+        }
+      });
+      // Update the user object for response
+      user.approvalStatus = 'approved';
     }
 
     // Update lastLogin timestamp
@@ -98,7 +158,13 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
 
     res.status(200).json(response);
   } catch (error) {
-    next(error);
+    console.error('Login error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Login failed';
+    res.status(500).json({
+      success: false,
+      message: errorMessage,
+      error: errorMessage
+    });
   }
 };
 
@@ -157,6 +223,9 @@ export const register = async (req: Request, res: Response, next: NextFunction):
     }
 
     // Create new user using Prisma
+    // Set approvalStatus to 'pending' - requires admin/manager approval for dashboard access
+    // Admins are auto-approved, employees/managers need approval
+    const autoApprove = role === 'admin';
     const newUser = await prisma.user.create({
       data: {
         name,
@@ -165,7 +234,8 @@ export const register = async (req: Request, res: Response, next: NextFunction):
         role,
         department,
         managerId: assignedManagerId,
-        isActive: true
+        isActive: true,
+        approvalStatus: autoApprove ? 'approved' : 'pending'
       },
       select: {
         id: true,
@@ -176,12 +246,27 @@ export const register = async (req: Request, res: Response, next: NextFunction):
         managerId: true,
         profilePicture: true,
         isActive: true,
+        approvalStatus: true,
         createdAt: true,
         updatedAt: true
       }
     });
 
-    // Generate JWT token
+    // If user is pending approval, don't return token and show message
+    if (newUser.approvalStatus === 'pending') {
+      const response: ApiResponse<{ user: any; requiresApproval: boolean }> = {
+        success: true,
+        message: 'Registration successful. Your account is pending approval. You will be notified once an administrator approves your access.',
+        data: {
+          user: newUser,
+          requiresApproval: true
+        }
+      };
+      res.status(201).json(response);
+      return;
+    }
+
+    // Generate JWT token for approved users
     const jwtSecret = process.env.JWT_SECRET || 'fallback-secret';
     const token = jwt.sign(
       { 

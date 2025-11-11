@@ -40,6 +40,7 @@ exports.changePassword = exports.resetPassword = exports.forgotPassword = export
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const prisma_1 = __importDefault(require("../../lib/prisma"));
+const app_1 = require("../../config/app");
 const schema_1 = require("./schema");
 const login = async (req, res, next) => {
     try {
@@ -91,12 +92,15 @@ const login = async (req, res, next) => {
             });
             return;
         }
-        const jwtSecret = process.env.JWT_SECRET || 'fallback-secret';
+        await prisma_1.default.user.update({
+            where: { id: user.id },
+            data: { lastLogin: new Date() }
+        });
         const token = jsonwebtoken_1.default.sign({
             userId: user.id,
             email: user.email,
             role: user.role
-        }, jwtSecret, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
+        }, app_1.APP_CONFIG.JWT.SECRET, { expiresIn: app_1.APP_CONFIG.JWT.EXPIRES_IN });
         const { passwordHash, ...userWithoutPassword } = user;
         const response = {
             success: true,

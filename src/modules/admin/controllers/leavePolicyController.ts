@@ -115,9 +115,10 @@ export class LeavePolicyController {
    * Create new leave policy
    */
   static async createLeavePolicy(req: Request, res: Response): Promise<void> {
+    const adminId = (req as any).user?.id;
+    const policyData = req.body;
+    
     try {
-      const adminId = (req as any).user?.id;
-      const policyData = req.body;
       console.log('🔍 LeavePolicyController: Received data:', policyData);
       console.log('🔍 LeavePolicyController: Admin ID:', adminId);
       console.log('🔍 LeavePolicyController: Data types:', {
@@ -146,13 +147,25 @@ export class LeavePolicyController {
     } catch (error) {
       console.error('Error in createPolicy:', error);
       
+      let message = 'Failed to create policy';
+      let statusCode = 500;
+      
+      // Handle unique constraint violation
+      if (error instanceof Error && error.message.includes('Unique constraint failed')) {
+        message = `A policy for leave type "${policyData.leaveType}" already exists. Please choose a different leave type or update the existing policy.`;
+        statusCode = 409; // Conflict
+      } else if (error instanceof Error && error.message.includes('P2002')) {
+        message = `A policy for leave type "${policyData.leaveType}" already exists. Please choose a different leave type or update the existing policy.`;
+        statusCode = 409; // Conflict
+      }
+      
       const response: ApiResponse = {
         success: false,
-        message: 'Failed to create policy',
+        message,
         error: error instanceof Error ? error.message : 'Unknown error'
       };
 
-      res.status(500).json(response);
+      res.status(statusCode).json(response);
     }
   }
 

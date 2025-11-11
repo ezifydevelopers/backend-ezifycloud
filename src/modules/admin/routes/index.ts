@@ -101,6 +101,63 @@ router.get('/employees/:id/leave-balance',
   EmployeeController.getEmployeeLeaveBalance
 );
 
+router.post('/employees/:id/leave-balance/adjust', 
+  validateParams(adminSchemas.idParam),
+  validateRequest(adminSchemas.adjustLeaveBalanceSchema),
+  EmployeeController.adjustEmployeeLeaveBalance
+);
+
+// Leave Accrual Routes
+router.post('/leave-accrual/process', 
+  EmployeeController.processLeaveAccrual
+);
+
+router.post('/employees/:id/leave-accrual/process', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.processEmployeeAccrual
+);
+
+router.get('/employees/:id/leave-accrual/history', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.getEmployeeAccrualHistory
+);
+
+router.get('/employees/:id/leave-accrual/next-date', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.getNextAccrualDate
+);
+
+// User Approval Routes
+router.get('/users/pending-approvals', 
+  EmployeeController.getPendingApprovals
+);
+
+router.post('/users/:id/approve', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.approveUserAccess
+);
+
+router.post('/users/:id/reject', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.rejectUserAccess
+);
+
+// Probation Management Routes
+router.post('/employees/:id/probation/complete', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.completeProbation
+);
+
+router.post('/employees/:id/probation/extend', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.extendProbation
+);
+
+router.post('/employees/:id/probation/terminate', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.terminateProbation
+);
+
 router.get('/employees/departments', 
   EmployeeController.getDepartments
 );
@@ -288,6 +345,19 @@ router.patch('/policies/bulk-update',
 //   validateRequest(adminSchemas.createAuditLog),
 //   AuditLogController.createAuditLog
 // );
+
+// Working Days Calculation Routes
+router.post('/working-days/process', 
+  SettingsController.processWorkingDays
+);
+
+router.get('/working-days/calendar', 
+  SettingsController.getWorkingDaysCalendar
+);
+
+router.get('/working-days/monthly-calendar', 
+  SettingsController.getMonthlyCalendar
+);
 
 // Settings Routes
 router.get('/settings', 

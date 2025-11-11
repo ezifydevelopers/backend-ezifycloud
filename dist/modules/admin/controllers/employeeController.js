@@ -76,6 +76,8 @@ class EmployeeController {
     static async createEmployee(req, res) {
         try {
             const employeeData = req.body;
+            console.log('🔍 EmployeeController: Received employee data:', employeeData);
+            console.log('🔍 EmployeeController: Request body keys:', Object.keys(employeeData));
             const employee = await employeeService_1.EmployeeService.createEmployee(employeeData);
             const response = {
                 success: true,
@@ -128,6 +130,8 @@ class EmployeeController {
     static async deleteEmployee(req, res) {
         try {
             const { id } = req.params;
+            const adminId = req.user?.id;
+            console.log(`🔍 EmployeeController: Delete employee request - ID: ${id}, Admin ID: ${adminId}`);
             if (!id) {
                 const response = {
                     success: false,
@@ -137,21 +141,41 @@ class EmployeeController {
                 res.status(400).json(response);
                 return;
             }
-            await employeeService_1.EmployeeService.deleteEmployee(id);
-            const response = {
-                success: true,
-                message: 'Employee deleted successfully'
-            };
-            res.status(200).json(response);
+            if (!adminId) {
+                const response = {
+                    success: false,
+                    message: 'Authentication required',
+                    error: 'Admin user not found'
+                };
+                res.status(401).json(response);
+                return;
+            }
+            const result = await employeeService_1.EmployeeService.deleteEmployee(id);
+            if (result.success) {
+                const response = {
+                    success: true,
+                    message: result.message,
+                    data: result.employee
+                };
+                res.status(200).json(response);
+            }
+            else {
+                const response = {
+                    success: false,
+                    message: result.message,
+                    error: result.message
+                };
+                res.status(400).json(response);
+            }
         }
         catch (error) {
-            console.error('Error in deleteEmployee:', error);
+            console.error('❌ EmployeeController: Error in deleteEmployee:', error);
             const response = {
                 success: false,
-                message: 'Failed to delete employee',
+                message: 'Failed to deactivate employee',
                 error: error instanceof Error ? error.message : 'Unknown error'
             };
-            res.status(400).json(response);
+            res.status(500).json(response);
         }
     }
     static async toggleEmployeeStatus(req, res) {
@@ -248,7 +272,7 @@ class EmployeeController {
             const result = await employeeService_1.EmployeeService.bulkDeleteEmployees(employeeIds);
             const response = {
                 success: true,
-                message: `Bulk delete completed: ${result.deleted} deleted, ${result.failed} failed`,
+                message: `Bulk deactivation completed: ${result.deleted} deactivated, ${result.failed} failed`,
                 data: result
             };
             res.status(200).json(response);
@@ -257,7 +281,7 @@ class EmployeeController {
             console.error('Error in bulkDeleteEmployees:', error);
             const response = {
                 success: false,
-                message: 'Failed to bulk delete employees',
+                message: 'Failed to bulk deactivate employees',
                 error: error instanceof Error ? error.message : 'Unknown error'
             };
             res.status(400).json(response);

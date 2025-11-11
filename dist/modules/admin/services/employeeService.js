@@ -132,6 +132,14 @@ class EmployeeService {
     }
     static async createEmployee(employeeData) {
         try {
+            console.log('🔍 EmployeeService: Creating employee with data:', employeeData);
+            console.log('🔍 EmployeeService: Required fields check:', {
+                name: !!employeeData.name,
+                email: !!employeeData.email,
+                department: !!employeeData.department,
+                role: !!employeeData.role,
+                password: !!employeeData.password
+            });
             const existingEmployee = await prisma.user.findUnique({
                 where: { email: employeeData.email }
             });
@@ -165,8 +173,7 @@ class EmployeeService {
                     role: employeeData.role,
                     department: employeeData.department,
                     managerId: assignedManagerId,
-                    isActive: true,
-                    profilePicture: employeeData.avatar || null
+                    isActive: true
                 },
                 include: {
                     manager: {
@@ -272,28 +279,70 @@ class EmployeeService {
     }
     static async deleteEmployee(id) {
         try {
+            console.log(`🔍 EmployeeService: Starting delete process for employee ID: ${id}`);
             const employee = await prisma.user.findUnique({
-                where: { id }
+                where: { id },
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    isActive: true,
+                    role: true,
+                    department: true
+                }
             });
             if (!employee) {
-                throw new Error('Employee not found');
+                console.log(`❌ EmployeeService: Employee not found with ID: ${id}`);
+                return {
+                    success: false,
+                    message: 'Employee not found'
+                };
             }
-            const leaveRequests = await prisma.leaveRequest.count({
-                where: { userId: id }
-            });
-            if (leaveRequests > 0) {
-                throw new Error('Cannot delete employee with existing leave requests');
+            if (!employee.isActive) {
+                console.log(`⚠️ EmployeeService: Employee ${employee.name} is already deactivated`);
+                return {
+                    success: false,
+                    message: 'Employee is already deactivated'
+                };
             }
-            await prisma.user.delete({
-                where: { id }
+            const pendingLeaveRequests = await prisma.leaveRequest.count({
+                where: {
+                    userId: id,
+                    status: 'pending'
+                }
             });
+            if (pendingLeaveRequests > 0) {
+                console.log(`❌ EmployeeService: Employee ${employee.name} has ${pendingLeaveRequests} pending leave requests`);
+                return {
+                    success: false,
+                    message: `Cannot deactivate employee with ${pendingLeaveRequests} pending leave request(s). Please approve or reject pending requests first.`
+                };
+            }
+            const updatedEmployee = await prisma.user.update({
+                where: { id },
+                data: {
+                    isActive: false
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    isActive: true
+                }
+            });
+            console.log(`✅ EmployeeService: Employee ${employee.name} (${employee.email}) has been deactivated successfully`);
+            return {
+                success: true,
+                message: `Employee ${employee.name} has been deactivated successfully`,
+                employee: updatedEmployee
+            };
         }
         catch (error) {
-            console.error('Error deleting employee:', error);
-            if (error instanceof Error) {
-                throw error;
-            }
-            throw new Error('Failed to delete employee');
+            console.error('❌ EmployeeService: Error deleting employee:', error);
+            return {
+                success: false,
+                message: error instanceof Error ? error.message : 'Failed to deactivate employee'
+            };
         }
     }
     static async toggleEmployeeStatus(id, isActive) {
@@ -366,21 +415,44 @@ class EmployeeService {
             let failed = 0;
             for (const id of employeeIds) {
                 try {
-                    await prisma.user.delete({
+                    const employee = await prisma.user.findUnique({
                         where: { id }
                     });
+                    if (!employee) {
+                        console.error(`Employee ${id} not found`);
+                        failed++;
+                        continue;
+                    }
+                    const pendingLeaveRequests = await prisma.leaveRequest.count({
+                        where: {
+                            userId: id,
+                            status: 'pending'
+                        }
+                    });
+                    if (pendingLeaveRequests > 0) {
+                        console.error(`Employee ${employee.name} has pending leave requests, skipping deactivation`);
+                        failed++;
+                        continue;
+                    }
+                    await prisma.user.update({
+                        where: { id },
+                        data: {
+                            isActive: false
+                        }
+                    });
+                    console.log(`Employee ${employee.name} (${employee.email}) has been deactivated`);
                     deleted++;
                 }
                 catch (error) {
-                    console.error(`Error deleting employee ${id}:`, error);
+                    console.error(`Error deactivating employee ${id}:`, error);
                     failed++;
                 }
             }
             return { deleted, failed };
         }
         catch (error) {
-            console.error('Error bulk deleting employees:', error);
-            throw new Error('Failed to bulk delete employees');
+            console.error('Error bulk deactivating employees:', error);
+            throw new Error('Failed to bulk deactivate employees');
         }
     }
     static async bulkUpdateEmployeeDepartment(employeeIds, department) {

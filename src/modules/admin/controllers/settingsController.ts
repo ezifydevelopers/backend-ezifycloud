@@ -5,6 +5,100 @@ import { ApiResponse } from '../../../types';
 const prisma = new PrismaClient();
 
 export class SettingsController {
+  /**
+   * Process working days calculation for a specific month
+   */
+  static async processWorkingDays(req: Request, res: Response): Promise<void> {
+    try {
+      const { year, month } = req.body;
+      const { triggerWorkingDaysCalculation } = await import('../../../services/workingDaysScheduler');
+      
+      let result;
+      if (year && month) {
+        result = await triggerWorkingDaysCalculation(year, month);
+      } else {
+        result = await triggerWorkingDaysCalculation();
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Working days calculation completed successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.error('Error in processWorkingDays:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to process working days calculation',
+      });
+    }
+  }
+
+  /**
+   * Get working days calendar for a specific month
+   */
+  static async getWorkingDaysCalendar(req: Request, res: Response): Promise<void> {
+    try {
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+
+      const { WorkingDaysService } = await import('../../../services/workingDaysService');
+      
+      // Try to get from database first
+      let calendar = await WorkingDaysService.getWorkingDaysCalendar(year, month);
+      
+      // If not found, calculate and save it
+      if (!calendar) {
+        await WorkingDaysService.processMonthlyWorkingDays(year, month);
+        calendar = await WorkingDaysService.getWorkingDaysCalendar(year, month);
+      }
+
+      if (!calendar) {
+        throw new Error('Failed to get working days calendar');
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Working days calendar retrieved successfully',
+        data: calendar,
+      });
+    } catch (error) {
+      console.error('Error in getWorkingDaysCalendar:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to retrieve working days calendar',
+      });
+    }
+  }
+
+  /**
+   * Get monthly calendar with working days, weekends, and holidays
+   */
+  static async getMonthlyCalendar(req: Request, res: Response): Promise<void> {
+    try {
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+      const workingDaysPerWeek = req.query.workingDaysPerWeek 
+        ? JSON.parse(req.query.workingDaysPerWeek as string)
+        : [1, 2, 3, 4, 5]; // Monday-Friday by default
+
+      const { WorkingDaysService } = await import('../../../services/workingDaysService');
+      const calendar = await WorkingDaysService.generateMonthlyCalendar(year, month, workingDaysPerWeek);
+
+      res.status(200).json({
+        success: true,
+        message: 'Monthly calendar retrieved successfully',
+        data: calendar,
+      });
+    } catch (error) {
+      console.error('Error in getMonthlyCalendar:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to retrieve monthly calendar',
+      });
+    }
+  }
+
   /** 
    * Get all system settings
    */

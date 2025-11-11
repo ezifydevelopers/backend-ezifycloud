@@ -1,224 +1,121 @@
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient, BoardType, ColumnType, WorkspaceRole } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Starting database seeding...');
+  // Ensure an admin user exists
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@example.com';
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Password123!';
 
-  // Create default users
-  const hashedPassword = await bcrypt.hash('password123', 12);
+  let admin = await prisma.user.findUnique({ where: { email: adminEmail } });
+  if (!admin) {
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    admin = await prisma.user.create({
+      data: {
+        name: 'Admin User',
+        email: adminEmail,
+        passwordHash,
+        role: 'admin',
+        isActive: true,
+      },
+    });
+    console.log(`✅ Created admin user ${adminEmail} (password: ${adminPassword})`);
+  } else {
+    console.log(`ℹ️ Using existing admin user ${adminEmail}`);
+  }
 
-  // Create admin user
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@company.com' },
+  // Create workspace
+  const workspace = await prisma.workspace.upsert({
+    where: { slug: 'acme-corp' },
     update: {},
     create: {
-      name: 'Admin User',
-      email: 'admin@company.com',
-      passwordHash: hashedPassword,
-      role: UserRole.admin,
-      department: 'HR',
-      isActive: true
-    }
+      name: 'Acme Corp',
+      slug: 'acme-corp',
+      description: 'Demo workspace for invoices',
+      settings: {
+        timezone: 'UTC',
+        currency: 'USD',
+        language: 'en',
+      },
+      createdBy: admin.id,
+      members: {
+        create: [{ userId: admin.id, role: WorkspaceRole.owner }],
+      },
+    },
+    include: { members: true },
   });
+  console.log(`✅ Workspace ready: ${workspace.name}`);
 
-  // Create manager user
-  const manager = await prisma.user.upsert({
-    where: { email: 'manager@company.com' },
-    update: {},
-    create: {
-      name: 'John Manager',
-      email: 'manager@company.com',
-      passwordHash: hashedPassword,
-      role: UserRole.manager,
-      department: 'Engineering',
-      isActive: true
-    }
+  // Create an Invoices board with some columns
+  const board = await prisma.board.create({
+    data: {
+      workspaceId: workspace.id,
+      name: 'Invoices - Demo',
+      type: BoardType.invoices,
+      description: 'Sample invoices board',
+      color: '#6d28d9',
+      icon: 'receipt',
+      settings: { statusOptions: ['Draft', 'Sent', 'Paid', 'Overdue'] },
+      columns: {
+        create: [
+          { name: 'Status', type: ColumnType.STATUS, position: 1, settings: { options: ['Draft','Sent','Paid','Overdue'] } },
+          { name: 'Invoice #', type: ColumnType.TEXT, position: 2 },
+          { name: 'Client', type: ColumnType.TEXT, position: 3 },
+          { name: 'Amount', type: ColumnType.CURRENCY, position: 4 },
+          { name: 'Due Date', type: ColumnType.DATE, position: 5 },
+        ],
+      },
+    },
+    include: { columns: true },
   });
+  console.log(`✅ Board created: ${board.name}`);
 
-  // Create employee user
-  const employee = await prisma.user.upsert({
-    where: { email: 'employee@company.com' },
-    update: {},
-    create: {
-      name: 'Jane Employee',
-      email: 'employee@company.com',
-      passwordHash: hashedPassword,
-      role: UserRole.employee,
-      department: 'Engineering',
-      managerId: manager.id,
-      isActive: true
-    }
-  });
+  const colByName = (name: string) => board.columns.find(c => c.name === name)!;
 
-  // Create leave policies
-  const leavePolicies = [
-    {
-      leaveType: 'annual',
-      totalDaysPerYear: 25,
-      canCarryForward: true,
-      maxCarryForwardDays: 5,
-      requiresApproval: true,
-      allowHalfDay: true,
-      description: 'Annual leave for vacation and personal time'
-    },
-    {
-      leaveType: 'sick',
-      totalDaysPerYear: 10,
-      canCarryForward: false,
-      maxCarryForwardDays: 0,
-      requiresApproval: true,
-      allowHalfDay: true,
-      description: 'Sick leave for medical reasons'
-    },
-    {
-      leaveType: 'casual',
-      totalDaysPerYear: 8,
-      canCarryForward: false,
-      maxCarryForwardDays: 0,
-      requiresApproval: true,
-      allowHalfDay: true,
-      description: 'Casual leave for personal work'
-    },
-    {
-      leaveType: 'maternity',
-      totalDaysPerYear: 90,
-      canCarryForward: false,
-      maxCarryForwardDays: 0,
-      requiresApproval: true,
-      allowHalfDay: false,
-      description: 'Maternity leave for new mothers'
-    },
-    {
-      leaveType: 'paternity',
-      totalDaysPerYear: 15,
-      canCarryForward: false,
-      maxCarryForwardDays: 0,
-      requiresApproval: true,
-      allowHalfDay: false,
-      description: 'Paternity leave for new fathers'
-    },
-    {
-      leaveType: 'emergency',
-      totalDaysPerYear: 5,
-      canCarryForward: false,
-      maxCarryForwardDays: 0,
-      requiresApproval: true,
-      allowHalfDay: true,
-      description: 'Emergency leave for urgent situations'
-    }
+  // Seed items with cells
+  const itemsData = [
+    { name: 'Invoice A-1001', status: 'Sent', invoice: 'A-1001', client: 'Globex', amount: 1250, due: addDays(10) },
+    { name: 'Invoice A-1002', status: 'Paid', invoice: 'A-1002', client: 'Initech', amount: 890, due: addDays(-2) },
+    { name: 'Invoice A-1003', status: 'Overdue', invoice: 'A-1003', client: 'Umbrella', amount: 2300, due: addDays(-15) },
+    { name: 'Invoice A-1004', status: 'Draft', invoice: 'A-1004', client: 'Soylent', amount: 410, due: addDays(20) },
   ];
 
-  for (const policy of leavePolicies) {
-    await prisma.leavePolicy.upsert({
-      where: { leaveType: policy.leaveType },
-      update: { ...policy, createdBy: admin.id, isActive: true },
-      create: { ...policy, createdBy: admin.id, isActive: true }
+  for (const row of itemsData) {
+    const item = await prisma.item.create({
+      data: {
+        boardId: board.id,
+        name: row.name,
+        status: row.status,
+        createdBy: admin.id,
+      },
+    });
+
+    await prisma.cell.createMany({
+      data: [
+        { itemId: item.id, columnId: colByName('Status').id, value: row.status as any },
+        { itemId: item.id, columnId: colByName('Invoice #').id, value: row.invoice as any },
+        { itemId: item.id, columnId: colByName('Client').id, value: row.client as any },
+        { itemId: item.id, columnId: colByName('Amount').id, value: row.amount as any },
+        { itemId: item.id, columnId: colByName('Due Date').id, value: row.due.toISOString().split('T')[0] as any },
+      ],
     });
   }
-
-  // Create leave balances for current year
-  const currentYear = new Date().getFullYear();
-  const users = [admin, manager, employee];
-
-  for (const user of users) {
-    await prisma.leaveBalance.upsert({
-      where: {
-        userId_year: {
-          userId: user.id,
-          year: currentYear
-        }
-      },
-      update: {},
-      create: {
-        userId: user.id,
-        year: currentYear,
-        annualTotal: 25,
-        annualUsed: 0,
-        annualRemaining: 25,
-        sickTotal: 10,
-        sickUsed: 0,
-        sickRemaining: 10,
-        casualTotal: 8,
-        casualUsed: 0,
-        casualRemaining: 8
-      }
-    });
-  }
-
-  // Create sample holidays
-  const holidays = [
-    {
-      name: 'New Year\'s Day',
-      description: 'New Year celebration',
-      date: new Date('2025-01-01'),
-      type: 'public',
-      isRecurring: true,
-      isActive: true,
-      createdBy: admin.id
-    },
-    {
-      name: 'Independence Day',
-      description: 'Independence Day celebration',
-      date: new Date('2025-07-04'),
-      type: 'public',
-      isRecurring: true,
-      isActive: true,
-      createdBy: admin.id
-    },
-    {
-      name: 'Christmas Day',
-      description: 'Christmas celebration',
-      date: new Date('2025-12-25'),
-      type: 'public',
-      isRecurring: true,
-      isActive: true,
-      createdBy: admin.id
-    },
-    {
-      name: 'Company Anniversary',
-      description: 'Company founding anniversary',
-      date: new Date('2025-06-15'),
-      type: 'company',
-      isRecurring: true,
-      isActive: true,
-      createdBy: admin.id
-    }
-  ];
-
-  for (const holiday of holidays) {
-    await prisma.holiday.upsert({
-      where: { 
-        name_date: {
-          name: holiday.name,
-          date: holiday.date
-        }
-      },
-      update: {
-        ...holiday,
-        type: holiday.type as any
-      },
-      create: {
-        ...holiday,
-        type: holiday.type as any
-      }
-    });
-  }
-
-  console.log('✅ Database seeding completed successfully!');
-  console.log('👤 Created users:');
-  console.log(`   Admin: ${admin.email} (password: password123)`);
-  console.log(`   Manager: ${manager.email} (password: password123)`);
-  console.log(`   Employee: ${employee.email} (password: password123)`);
-  console.log('📅 Created 4 sample holidays');
+  console.log(`✅ Seeded ${itemsData.length} invoice items`);
 }
 
+function addDays(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d;
+}
 main()
-  .catch((e) => {
-    console.error('❌ Error during seeding:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
+  .then(async () => {
     await prisma.$disconnect();
+    console.log('🌱 Seed complete');
+  })
+  .catch(async (e) => {
+    console.error(e);
+    await prisma.$disconnect();
+    process.exit(1);
   });

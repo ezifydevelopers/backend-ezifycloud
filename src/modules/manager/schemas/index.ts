@@ -99,6 +99,12 @@ export const updateApprovalStatusSchema = Joi.object({
   priority: Joi.string().valid('low', 'medium', 'high').optional(),
 });
 
+export const adjustLeaveBalanceSchema = Joi.object({
+  leaveType: Joi.string().valid('annual', 'sick', 'casual', 'maternity', 'paternity', 'emergency').required(),
+  additionalDays: Joi.number().integer().min(1).max(365).required(),
+  reason: Joi.string().min(5).max(500).required(),
+});
+
 // Team Calendar Schemas
 export const calendarFiltersSchema = Joi.object({
   startDate: Joi.date().iso().required(),
@@ -362,6 +368,7 @@ export const managerSchemas = {
   approvalAction: approvalActionSchema,
   bulkApprovalAction: bulkApprovalActionSchema,
   updateApprovalStatus: updateApprovalStatusSchema,
+  adjustLeaveBalance: adjustLeaveBalanceSchema,
   calendarFilters: calendarFiltersSchema,
   createCalendarEvent: createCalendarEventSchema,
   updateCalendarEvent: updateCalendarEventSchema,

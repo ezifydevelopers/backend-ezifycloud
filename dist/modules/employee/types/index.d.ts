@@ -22,12 +22,7 @@ export interface PersonalInfo {
     isActive: boolean;
 }
 export interface LeaveBalance {
-    annual: LeaveBalanceDetail;
-    sick: LeaveBalanceDetail;
-    casual: LeaveBalanceDetail;
-    emergency: LeaveBalanceDetail;
-    maternity?: LeaveBalanceDetail;
-    paternity?: LeaveBalanceDetail;
+    [leaveType: string]: LeaveBalanceDetail | LeaveBalanceSummary;
     total: LeaveBalanceSummary;
 }
 export interface LeaveBalanceDetail {

@@ -251,13 +251,14 @@ export class SalaryService {
           leaveType: true,
           startDate: true,
           endDate: true,
-          totalDays: true
+          totalDays: true,
+          isPaid: true
         }
       });
 
       console.log(`📅 Found ${leaveRequests.length} approved leave requests`);
 
-      // Calculate leave deductions
+      // Calculate leave deductions - ONLY for unpaid leaves
       let totalLeaveDeductions = 0;
       const dailyRate = baseSalary / 30; // Assuming 30 days per month
       const leaveDeductionDetails: Array<{
@@ -266,12 +267,17 @@ export class SalaryService {
         startDate: Date;
         endDate: Date;
         totalDays: number;
+        isPaid: boolean;
         deductionAmount: number;
       }> = [];
 
       for (const request of leaveRequests) {
         const totalDays = Number(request.totalDays);
-        const deductionAmount = totalDays * dailyRate;
+        const isPaid = request.isPaid;
+        
+        // Only deduct salary for unpaid leaves
+        // Paid leaves do not affect salary calculation
+        const deductionAmount = isPaid ? 0 : totalDays * dailyRate;
         totalLeaveDeductions += deductionAmount;
 
         leaveDeductionDetails.push({
@@ -280,10 +286,15 @@ export class SalaryService {
           startDate: request.startDate,
           endDate: request.endDate,
           totalDays,
+          isPaid,
           deductionAmount
         });
 
-        console.log(`📝 Leave deduction: ${request.leaveType} - ${totalDays} days = $${deductionAmount.toFixed(2)}`);
+        if (isPaid) {
+          console.log(`✅ Paid leave: ${request.leaveType} - ${totalDays} days (no salary deduction)`);
+        } else {
+          console.log(`💰 Unpaid leave deduction: ${request.leaveType} - ${totalDays} days = $${deductionAmount.toFixed(2)}`);
+        }
       }
 
       // Calculate tax deductions (simplified - 20% of gross)

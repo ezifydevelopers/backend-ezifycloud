@@ -95,9 +95,9 @@ class LeavePolicyController {
         }
     }
     static async createLeavePolicy(req, res) {
+        const adminId = req.user?.id;
+        const policyData = req.body;
         try {
-            const adminId = req.user?.id;
-            const policyData = req.body;
             console.log('🔍 LeavePolicyController: Received data:', policyData);
             console.log('🔍 LeavePolicyController: Admin ID:', adminId);
             console.log('🔍 LeavePolicyController: Data types:', {
@@ -123,12 +123,22 @@ class LeavePolicyController {
         }
         catch (error) {
             console.error('Error in createPolicy:', error);
+            let message = 'Failed to create policy';
+            let statusCode = 500;
+            if (error instanceof Error && error.message.includes('Unique constraint failed')) {
+                message = `A policy for leave type "${policyData.leaveType}" already exists. Please choose a different leave type or update the existing policy.`;
+                statusCode = 409;
+            }
+            else if (error instanceof Error && error.message.includes('P2002')) {
+                message = `A policy for leave type "${policyData.leaveType}" already exists. Please choose a different leave type or update the existing policy.`;
+                statusCode = 409;
+            }
             const response = {
                 success: false,
-                message: 'Failed to create policy',
+                message,
                 error: error instanceof Error ? error.message : 'Unknown error'
             };
-            res.status(500).json(response);
+            res.status(statusCode).json(response);
         }
     }
     static async updateLeavePolicy(req, res) {
