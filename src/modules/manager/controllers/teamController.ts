@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import { TeamService } from '../services/teamService';
 import { ApiResponse } from '../../../types';
 import { TeamFilters } from '../types';
+import prisma from '../../../lib/prisma';
 
 export class TeamController {
   /**
@@ -192,7 +194,16 @@ export class TeamController {
         return;
       }
 
-      const teamMember = await TeamService.updateTeamMember(managerId, id, updateData);
+      // Get editor info for audit log
+      const editor = (req as any).user;
+      const editedBy = editor ? {
+        userId: editor.id,
+        userName: editor.name || editor.email,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] as string || undefined,
+        userAgent: req.headers['user-agent']
+      } : undefined;
+
+      const teamMember = await TeamService.updateTeamMember(managerId, id, updateData, editedBy);
 
       const response: ApiResponse = {
         success: true,
@@ -661,4 +672,311 @@ export class TeamController {
     }
   }
 
+  /**
+   * Get pending user approvals for manager's department
+   */
+  static async getPendingUserApprovals(req: Request, res: Response): Promise<void> {
+    try {
+      const managerId = (req as any).user?.id;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+
+      if (!managerId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Manager ID is required',
+          error: 'Missing manager information'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const result = await TeamService.getPendingUserApprovals(managerId, page, limit);
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Pending user approvals retrieved successfully',
+        data: {
+          data: result.users,
+          total: result.pagination.totalItems,
+          page: result.pagination.page,
+          limit: result.pagination.limit,
+          totalPages: result.pagination.totalPages
+        }
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in getPendingUserApprovals:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to retrieve pending user approvals',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Approve user access
+   */
+  static async approveUserAccess(req: Request, res: Response): Promise<void> {
+    try {
+      const managerId = (req as any).user?.id;
+      const { userId } = req.params;
+
+      if (!managerId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Manager ID is required',
+          error: 'Missing manager information'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const approvedUser = await TeamService.approveUserAccess(managerId, userId);
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'User access approved successfully',
+        data: approvedUser
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in approveUserAccess:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to approve user access',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Reject user access
+   */
+  static async rejectUserAccess(req: Request, res: Response): Promise<void> {
+    try {
+      const managerId = (req as any).user?.id;
+      const userId = req.params.userId || req.params.id;
+      const { reason } = req.body;
+
+      if (!managerId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Manager ID is required',
+          error: 'Missing manager information'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const rejectedUser = await TeamService.rejectUserAccess(managerId, userId, reason);
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'User access rejected successfully',
+        data: rejectedUser
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in rejectUserAccess:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to reject user access',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Get team member edit history
+   */
+  static async getTeamMemberEditHistory(req: Request, res: Response): Promise<void> {
+    try {
+      const managerId = (req as any).user?.id;
+      const { id } = req.params;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      if (!managerId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Manager ID is required',
+          error: 'Missing manager information'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Team member ID is required',
+          error: 'Missing team member ID'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Verify team member belongs to this manager
+      const member = await prisma.user.findFirst({
+        where: {
+          id,
+          managerId: managerId
+        }
+      });
+
+      if (!member) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Team member not found or not under your management',
+          error: 'Unauthorized'
+        };
+        res.status(403).json(response);
+        return;
+      }
+
+      const { AuditService } = await import('../../audit/services/auditService');
+      const result = await AuditService.getAuditLogs({
+        targetType: 'employee',
+        targetId: id,
+        action: 'update',
+        page,
+        limit
+      });
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Team member edit history retrieved successfully',
+        data: result.logs,
+        pagination: {
+          page: result.page,
+          limit: result.limit,
+          total: result.total,
+          totalPages: result.totalPages
+        }
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in getTeamMemberEditHistory:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to retrieve team member edit history',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Reset team member password (Manager only)
+   */
+  static async resetTeamMemberPassword(req: Request, res: Response): Promise<void> {
+    try {
+      const memberId = req.params.id;
+      const { newPassword } = req.body;
+      const managerId = (req as any).user?.id;
+
+      if (!memberId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Team member ID is required',
+          error: 'Missing team member ID'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (!newPassword || newPassword.length < 6) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'New password must be at least 6 characters long',
+          error: 'Invalid password'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Verify manager has access to this team member
+      const manager = await prisma.user.findUnique({
+        where: { id: managerId },
+        select: { id: true, department: true }
+      });
+
+      if (!manager) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Manager not found',
+          error: 'Manager does not exist'
+        };
+        res.status(404).json(response);
+        return;
+      }
+
+      // Check if team member exists and belongs to manager's department or is assigned to manager
+      const teamMember = await prisma.user.findFirst({
+        where: {
+          id: memberId,
+          OR: [
+            { department: manager.department },
+            { managerId: managerId }
+          ]
+        },
+        select: { id: true, email: true, name: true, role: true }
+      });
+
+      if (!teamMember) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Team member not found or you do not have permission to reset their password',
+          error: 'Access denied'
+        };
+        res.status(403).json(response);
+        return;
+      }
+
+      // Hash new password
+      const saltRounds = 12;
+      const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+
+      // Update password
+      await prisma.user.update({
+        where: { id: memberId },
+        data: {
+          passwordHash,
+          updatedAt: new Date()
+        }
+      });
+
+      // Log the action
+      console.log(`Manager ${managerId} reset password for team member ${memberId} (${teamMember.email})`);
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Team member password has been reset successfully',
+        data: {
+          memberId,
+          email: teamMember.email,
+          name: teamMember.name
+        }
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in resetTeamMemberPassword:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to reset team member password',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
 }

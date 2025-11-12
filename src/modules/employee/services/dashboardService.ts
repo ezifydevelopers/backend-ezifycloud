@@ -151,6 +151,26 @@ export class EmployeeDashboardService {
     try {
       const currentYear = new Date().getFullYear();
       
+      // Get employee info including joinDate
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId },
+        select: {
+          joinDate: true,
+          createdAt: true
+        }
+      });
+
+      if (!employee) {
+        return {
+          total: { totalDays: 0, usedDays: 0, remainingDays: 0, pendingDays: 0, overallUtilization: 0 }
+        };
+      }
+
+      // Calculate months served
+      const startDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
+      const currentDate = new Date();
+      const monthsServed = this.calculateMonthsServed(startDate, currentDate);
+
       // Get active leave policies from database
       const leavePolicies = await prisma.leavePolicy.findMany({
         where: {
@@ -169,19 +189,23 @@ export class EmployeeDashboardService {
         };
       }
 
-      // Create dynamic leave balance based on actual policies
+      // Create dynamic leave balance based on tenure
       const dynamicLeaveBalance: { [key: string]: LeaveBalanceDetail } = {};
       let totalDays = 0;
 
       for (const policy of leavePolicies) {
+        // Calculate tenure-based total: (totalDaysPerYear / 12) * monthsServed
+        const monthlyAccrual = policy.totalDaysPerYear / 12;
+        const tenureBasedTotal = Math.round(monthlyAccrual * monthsServed * 100) / 100;
+        
         dynamicLeaveBalance[policy.leaveType] = {
-          total: policy.totalDaysPerYear,
+          total: tenureBasedTotal,
           used: 0,
-          remaining: policy.totalDaysPerYear,
+          remaining: tenureBasedTotal,
           pending: 0,
           utilizationRate: 0
         };
-        totalDays += policy.totalDaysPerYear;
+        totalDays += tenureBasedTotal;
       }
 
       const total: LeaveBalanceSummary = {
@@ -205,12 +229,63 @@ export class EmployeeDashboardService {
   }
 
   /**
+   * Calculate days served based on join date (for daily accrual)
+   */
+  private static calculateDaysServed(startDate: Date, currentDate: Date): number {
+    const start = new Date(startDate);
+    const current = new Date(currentDate);
+    
+    // Set time to midnight to calculate full days
+    start.setHours(0, 0, 0, 0);
+    current.setHours(0, 0, 0, 0);
+    
+    // Calculate difference in milliseconds
+    const diffTime = current.getTime() - start.getTime();
+    
+    // Convert to days (including partial days)
+    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    
+    // Return the actual days served (can be 0 on first day, 1 on second day, etc.)
+    return Math.max(0, Math.round(diffDays * 100) / 100);
+  }
+
+  /**
+   * Calculate months served based on join date (deprecated - kept for backward compatibility)
+   * @deprecated Use calculateDaysServed for daily accrual instead
+   */
+  private static calculateMonthsServed(startDate: Date, currentDate: Date): number {
+    const daysServed = this.calculateDaysServed(startDate, currentDate);
+    // Convert days to months for backward compatibility
+    return daysServed / 30.44; // Average days per month
+  }
+
+  /**
    * Get leave balance for employee
    */
   private static async getLeaveBalance(employeeId: string, startDate: Date, endDate: Date): Promise<LeaveBalance> {
     try {
       const currentYear = new Date().getFullYear();
       
+      // Get employee info including joinDate
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId },
+        select: {
+          joinDate: true,
+          createdAt: true
+        }
+      });
+
+      if (!employee) {
+        return {
+          total: { totalDays: 0, usedDays: 0, remainingDays: 0, pendingDays: 0, overallUtilization: 0 }
+        };
+      }
+
+      // Calculate days served (for daily accrual)
+      const empStartDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
+      const currentDate = new Date();
+      const daysServed = this.calculateDaysServed(empStartDate, currentDate);
+
       // Get leave balance from database
       const leaveBalance = await prisma.leaveBalance.findUnique({
         where: {
@@ -232,10 +307,13 @@ export class EmployeeDashboardService {
         }
       });
 
-      // Create a map of leave types to their max days
+      // Create a map of leave types to their tenure-based max days
+      // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
       const policyMap = new Map<string, number>();
       leavePolicies.forEach(policy => {
-        policyMap.set(policy.leaveType, policy.totalDaysPerYear);
+        const dailyAccrual = policy.totalDaysPerYear / 365; // Daily accrual rate
+        const tenureBasedTotal = Math.round(dailyAccrual * daysServed * 100) / 100;
+        policyMap.set(policy.leaveType, tenureBasedTotal);
       });
 
       // Get pending leave requests
@@ -298,24 +376,24 @@ export class EmployeeDashboardService {
       let totalPendingDays = 0;
 
       // Only process leave types that have active policies
-      for (const [leaveType, totalDaysPerYear] of policyMap) {
+      for (const [leaveType, tenureBasedTotal] of policyMap) {
         // Use calculated approved days instead of database values
         const used = (approvedDays as any)[leaveType] || 0;
         const pending = (pendingDays as any)[leaveType] || 0;
         
         // Calculate remaining days accounting for pending requests
-        const actualRemaining = Math.max(0, totalDaysPerYear - used - pending);
+        const actualRemaining = Math.max(0, tenureBasedTotal - used - pending);
         
-        // Use the policy total as the authoritative source
+        // Use the tenure-based total as the authoritative source
         dynamicLeaveBalance[leaveType] = {
-          total: totalDaysPerYear, // Always use policy total
+          total: tenureBasedTotal, // Use tenure-based total
           used: used, // Use calculated approved days
           remaining: actualRemaining, // Total - Used - Pending
           pending: pending,
-          utilizationRate: totalDaysPerYear > 0 ? (used / totalDaysPerYear) * 100 : 0
+          utilizationRate: tenureBasedTotal > 0 ? (used / tenureBasedTotal) * 100 : 0
         };
 
-        totalDays += totalDaysPerYear;
+        totalDays += tenureBasedTotal;
         usedDays += used;
         remainingDays += actualRemaining;
         totalPendingDays += pending;

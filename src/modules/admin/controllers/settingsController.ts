@@ -538,16 +538,45 @@ export class SettingsController {
    */
   static async getSystemConfigSettings(req: Request, res: Response): Promise<void> {
     try {
+      // Get system config from database
+      // Use try-catch for the query in case table doesn't exist yet
+      let configs: Awaited<ReturnType<typeof prisma.systemConfig.findMany>> = [];
+      try {
+        configs = await prisma.systemConfig.findMany({
+          where: { category: { in: ['probation', 'system'] } }
+        });
+      } catch (dbError: any) {
+        // If table doesn't exist, return empty array (will use defaults)
+        if (dbError.code === 'P2021' || dbError.code === '42P01') {
+          console.warn('SystemConfig table not found, using default values');
+          configs = [];
+        } else {
+          throw dbError;
+        }
+      }
+
+      // Convert to key-value object
+      const configMap: Record<string, any> = {};
+      configs.forEach(config => {
+        try {
+          configMap[config.key] = JSON.parse(config.value);
+        } catch {
+          configMap[config.key] = config.value;
+        }
+      });
+
+      // Default values if not in database
       const systemConfig = {
-        maintenanceMode: false,
-        maintenanceMessage: 'System is under maintenance. Please try again later.',
-        maxFileUploadSize: 10, // MB
-        allowedFileTypes: ['pdf', 'doc', 'docx', 'jpg', 'png'],
-        backupFrequency: 'daily',
-        logRetentionDays: 90,
-        apiRateLimit: 100, // requests per minute
-        emailServiceProvider: 'smtp',
-        smsServiceProvider: 'twilio'
+        maintenanceMode: configMap['maintenanceMode'] ?? false,
+        maintenanceMessage: configMap['maintenanceMessage'] ?? 'System is under maintenance. Please try again later.',
+        maxFileUploadSize: configMap['maxFileUploadSize'] ?? 10, // MB
+        allowedFileTypes: configMap['allowedFileTypes'] ?? ['pdf', 'doc', 'docx', 'jpg', 'png'],
+        backupFrequency: configMap['backupFrequency'] ?? 'daily',
+        logRetentionDays: configMap['logRetentionDays'] ?? 90,
+        apiRateLimit: configMap['apiRateLimit'] ?? 100, // requests per minute
+        emailServiceProvider: configMap['emailServiceProvider'] ?? 'smtp',
+        smsServiceProvider: configMap['smsServiceProvider'] ?? 'twilio',
+        defaultProbationDuration: configMap['defaultProbationDuration'] ?? 90 // days
       };
 
       const response: ApiResponse = {
@@ -576,6 +605,57 @@ export class SettingsController {
   static async updateSystemConfigSettings(req: Request, res: Response): Promise<void> {
     try {
       const settingsData = req.body;
+      const adminId = (req as any).user?.id;
+      
+      // Update or create SystemConfig entries
+      const configKeys = [
+        'maintenanceMode',
+        'maintenanceMessage',
+        'maxFileUploadSize',
+        'allowedFileTypes',
+        'backupFrequency',
+        'logRetentionDays',
+        'apiRateLimit',
+        'emailServiceProvider',
+        'smsServiceProvider',
+        'defaultProbationDuration'
+      ];
+
+      for (const key of configKeys) {
+        if (settingsData[key] !== undefined) {
+          try {
+            const value = typeof settingsData[key] === 'object' 
+              ? JSON.stringify(settingsData[key])
+              : String(settingsData[key]);
+            
+            const category = key === 'defaultProbationDuration' ? 'probation' : 'system';
+
+            await prisma.systemConfig.upsert({
+              where: { key },
+              update: {
+                value,
+                updatedBy: adminId,
+                updatedAt: new Date()
+              },
+              create: {
+                key,
+                value,
+                category,
+                description: `System configuration for ${key}`,
+                updatedBy: adminId
+              }
+            });
+          } catch (dbError: any) {
+            // If table doesn't exist, log warning but continue
+            if (dbError.code === 'P2021' || dbError.code === '42P01') {
+              console.error(`SystemConfig table not found. Please run database migrations: npx prisma migrate dev`);
+              throw new Error('SystemConfig table not found. Please run database migrations.');
+            } else {
+              throw dbError;
+            }
+          }
+        }
+      }
       
       const response: ApiResponse = {
         success: true,

@@ -226,6 +226,30 @@ export const register = async (req: Request, res: Response, next: NextFunction):
     // Set approvalStatus to 'pending' - requires admin/manager approval for dashboard access
     // Admins are auto-approved, employees/managers need approval
     const autoApprove = role === 'admin';
+    
+    // Set up probation for employees (not admins/managers) based on joinDate
+    // If joinDate is provided, use it; otherwise use current date
+    const joinDate = value.joinDate ? new Date(value.joinDate) : new Date();
+    
+    // Get default probation duration from SystemConfig
+    let defaultProbationDuration = 90; // Default fallback
+    try {
+      const probationConfig = await prisma.systemConfig.findUnique({
+        where: { key: 'defaultProbationDuration' }
+      });
+      if (probationConfig) {
+        defaultProbationDuration = parseInt(probationConfig.value, 10) || 90;
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not fetch default probation duration from SystemConfig, using default 90 days');
+    }
+    
+    const shouldStartProbation = role === 'employee';
+    const probationStartDate = shouldStartProbation ? joinDate : null;
+    const probationEndDate = shouldStartProbation 
+      ? new Date(joinDate.getTime() + defaultProbationDuration * 24 * 60 * 60 * 1000)
+      : null;
+    
     const newUser = await prisma.user.create({
       data: {
         name,
@@ -235,7 +259,12 @@ export const register = async (req: Request, res: Response, next: NextFunction):
         department,
         managerId: assignedManagerId,
         isActive: true,
-        approvalStatus: autoApprove ? 'approved' : 'pending'
+        approvalStatus: autoApprove ? 'approved' : 'pending',
+        joinDate: joinDate,
+        probationStatus: shouldStartProbation ? 'active' : null,
+        probationStartDate,
+        probationEndDate,
+        probationDuration: shouldStartProbation ? defaultProbationDuration : null
       },
       select: {
         id: true,
@@ -254,6 +283,48 @@ export const register = async (req: Request, res: Response, next: NextFunction):
 
     // If user is pending approval, don't return token and show message
     if (newUser.approvalStatus === 'pending') {
+      // Notify all admins about the new pending approval request
+      try {
+        const { NotificationService } = await import('../notification/services/notificationService');
+        
+        // Get all active admin users
+        const adminUsers = await prisma.user.findMany({
+          where: {
+            role: 'admin',
+            isActive: true
+          },
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        });
+
+        // Create notification for each admin
+        for (const admin of adminUsers) {
+          await NotificationService.createNotification({
+            userId: admin.id,
+            type: 'approval_requested',
+            title: 'New Employee Approval Request',
+            message: `${newUser.name} (${newUser.email}) has requested access and is waiting for approval.`,
+            link: '/admin/user-approvals',
+            metadata: {
+              userId: newUser.id,
+              userName: newUser.name,
+              userEmail: newUser.email,
+              userRole: newUser.role,
+              department: newUser.department,
+              requestType: 'user_approval'
+            }
+          });
+        }
+
+        console.log(`✅ Created approval notifications for ${adminUsers.length} admin(s) for new user: ${newUser.email}`);
+      } catch (notificationError) {
+        // Log error but don't fail the registration
+        console.error('⚠️ Error creating admin notifications for pending user:', notificationError);
+      }
+
       const response: ApiResponse<{ user: any; requiresApproval: boolean }> = {
         success: true,
         message: 'Registration successful. Your account is pending approval. You will be notified once an administrator approves your access.',

@@ -273,12 +273,32 @@ export class EmployeeService {
       // Admins are auto-approved, employees/managers need approval
       const autoApprove = employeeData.role === 'admin';
       
-      // Set up probation for employees (not admins/managers)
-      const probationDuration = employeeData.probationDuration || 90; // Default 90 days
+      // Set up probation for employees (not admins/managers) based on joinDate
+      // If joinDate is provided, use it; otherwise use current date
+      const joinDate = (employeeData as any).joinDate 
+        ? new Date((employeeData as any).joinDate) 
+        : new Date();
+      
+      // Get default probation duration from SystemConfig if not provided
+      let defaultProbationDuration = 90; // Default fallback
+      if (!employeeData.probationDuration) {
+        try {
+          const probationConfig = await prisma.systemConfig.findUnique({
+            where: { key: 'defaultProbationDuration' }
+          });
+          if (probationConfig) {
+            defaultProbationDuration = parseInt(probationConfig.value, 10) || 90;
+          }
+        } catch (error) {
+          console.warn('⚠️ Could not fetch default probation duration from SystemConfig, using default 90 days');
+        }
+      }
+      
+      const probationDuration = employeeData.probationDuration || defaultProbationDuration;
       const shouldStartProbation = employeeData.startProbation !== false && employeeData.role === 'employee';
-      const probationStartDate = shouldStartProbation ? new Date() : null;
+      const probationStartDate = shouldStartProbation ? joinDate : null;
       const probationEndDate = shouldStartProbation 
-        ? new Date(Date.now() + probationDuration * 24 * 60 * 60 * 1000)
+        ? new Date(joinDate.getTime() + probationDuration * 24 * 60 * 60 * 1000)
         : null;
       
       const employee = await prisma.user.create({
@@ -291,6 +311,7 @@ export class EmployeeService {
           managerId: assignedManagerId,
           isActive: true,
           approvalStatus: autoApprove ? 'approved' : 'pending',
+          joinDate: joinDate,
           probationStatus: shouldStartProbation ? 'active' : null,
           probationStartDate,
           probationEndDate,
@@ -363,11 +384,21 @@ export class EmployeeService {
     employeeType?: 'onshore' | 'offshore' | null;
     region?: string | null;
     timezone?: string | null;
-  }): Promise<Employee> {
+    joinDate?: Date | string | null;
+    probationStatus?: 'active' | 'completed' | 'extended' | 'terminated' | null;
+  }, editedBy?: { userId: string; userName: string; ipAddress?: string; userAgent?: string }): Promise<Employee> {
     try {
       // Check if employee exists
       const existingEmployee = await prisma.user.findUnique({
-        where: { id }
+        where: { id },
+        include: {
+          manager: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
       });
 
       if (!existingEmployee) {
@@ -385,6 +416,67 @@ export class EmployeeService {
         }
       }
 
+      // Track field changes for audit log
+      const fieldChanges: Array<{ field: string; oldValue: unknown; newValue: unknown }> = [];
+      const oldData: Record<string, unknown> = {};
+      const newData: Record<string, unknown> = {};
+
+      // Compare and track changes
+      const fieldsToTrack: Array<{ key: keyof typeof updateData; dbKey: string }> = [
+        { key: 'name', dbKey: 'name' },
+        { key: 'email', dbKey: 'email' },
+        { key: 'phone', dbKey: 'phone' },
+        { key: 'department', dbKey: 'department' },
+        { key: 'role', dbKey: 'role' },
+        { key: 'managerId', dbKey: 'managerId' },
+        { key: 'avatar', dbKey: 'profilePicture' },
+        { key: 'employeeType', dbKey: 'employeeType' },
+        { key: 'region', dbKey: 'region' },
+        { key: 'timezone', dbKey: 'timezone' },
+        { key: 'joinDate', dbKey: 'joinDate' },
+        { key: 'probationStatus', dbKey: 'probationStatus' },
+      ];
+
+      fieldsToTrack.forEach(({ key, dbKey }) => {
+        if (updateData[key] !== undefined) {
+          const oldValue = key === 'avatar' ? existingEmployee.profilePicture : existingEmployee[dbKey as keyof typeof existingEmployee];
+          let newValue: unknown;
+          
+          if (key === 'avatar') {
+            newValue = updateData.avatar;
+          } else if (key === 'joinDate') {
+            // Convert joinDate to Date for comparison
+            const oldDate = oldValue ? new Date(oldValue as Date).toISOString().split('T')[0] : null;
+            const newDate = updateData.joinDate ? new Date(updateData.joinDate).toISOString().split('T')[0] : null;
+            newValue = newDate;
+            // Only track if date actually changed
+            if (oldDate !== newDate) {
+              fieldChanges.push({
+                field: dbKey,
+                oldValue: oldDate,
+                newValue: newDate
+              });
+              oldData[dbKey] = oldDate;
+              newData[dbKey] = newDate;
+            }
+            return; // Skip the default comparison for joinDate
+          } else {
+            newValue = updateData[key];
+          }
+          
+          // Only track if value actually changed
+          if (oldValue !== newValue) {
+            fieldChanges.push({
+              field: dbKey,
+              oldValue: oldValue ?? null,
+              newValue: newValue ?? null
+            });
+            oldData[dbKey] = oldValue ?? null;
+            newData[dbKey] = newValue ?? null;
+          }
+        }
+      });
+
       // Update employee
       const employee = await prisma.user.update({
         where: { id },
@@ -397,7 +489,9 @@ export class EmployeeService {
           profilePicture: updateData.avatar || undefined,
           employeeType: updateData.employeeType !== undefined ? updateData.employeeType : undefined,
           region: updateData.region !== undefined ? updateData.region : undefined,
-          timezone: updateData.timezone !== undefined ? updateData.timezone : undefined
+          timezone: updateData.timezone !== undefined ? updateData.timezone : undefined,
+          joinDate: updateData.joinDate !== undefined ? (updateData.joinDate ? new Date(updateData.joinDate) : null) : undefined,
+          probationStatus: updateData.probationStatus !== undefined ? updateData.probationStatus : undefined
         },
         include: {
           manager: {
@@ -408,6 +502,31 @@ export class EmployeeService {
           }
         }
       });
+
+      // Log changes to audit log if there are any changes and editor info is provided
+      if (fieldChanges.length > 0 && editedBy) {
+        try {
+          const { AuditService } = await import('../../audit/services/auditService');
+          await AuditService.logUpdate(
+            editedBy.userId,
+            editedBy.userName,
+            'employee',
+            id,
+            fieldChanges,
+            oldData,
+            newData,
+            {
+              ipAddress: editedBy.ipAddress,
+              userAgent: editedBy.userAgent,
+              requestMethod: 'PUT',
+              requestPath: `/admin/employees/${id}`
+            }
+          );
+        } catch (auditError) {
+          console.error('Failed to log employee update to audit log:', auditError);
+          // Don't throw - audit logging failure shouldn't break the update
+        }
+      }
 
       const leaveBalance = await EmployeeService.getEmployeeLeaveBalance(employee.id);
 
@@ -814,20 +933,24 @@ export class EmployeeService {
 
   /**
    * Get comprehensive employee leave balance for admin view
+   * Now calculates based on daily accrual: (totalDaysPerYear / 365) * daysServed
+   * Leaves accrue day by day from the join date
    */
   public static async getEmployeeLeaveBalance(employeeId: string, year?: string): Promise<any> {
     try {
       const currentYear = year ? parseInt(year) : new Date().getFullYear();
       console.log('🔍 EmployeeService: getEmployeeLeaveBalance called with:', { employeeId, year, currentYear });
       
-      // Get user information
+      // Get user information including joinDate
       const user = await prisma.user.findUnique({
         where: { id: employeeId },
         select: {
           id: true,
           name: true,
           email: true,
-          department: true
+          department: true,
+          joinDate: true,
+          createdAt: true
         }
       });
 
@@ -836,6 +959,12 @@ export class EmployeeService {
       if (!user) {
         throw new Error('User not found');
       }
+
+      // Calculate days served based on join date (for daily accrual)
+      const joinDate = user.joinDate ? new Date(user.joinDate) : new Date(user.createdAt);
+      const currentDate = new Date();
+      const daysServed = this.calculateDaysServed(joinDate, currentDate);
+      console.log('🔍 EmployeeService: Days served:', daysServed);
 
       // Get leave balance from database
       const leaveBalance = await prisma.leaveBalance.findUnique({
@@ -858,10 +987,14 @@ export class EmployeeService {
         }
       });
 
-      // Create a map of leave types to their max days
+      // Create a map of leave types to their tenure-based max days
+      // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
       const policyMap = new Map<string, number>();
       leavePolicies.forEach(policy => {
-        policyMap.set(policy.leaveType, policy.totalDaysPerYear);
+        const dailyAccrual = policy.totalDaysPerYear / 365; // Daily accrual rate
+        const tenureBasedTotal = Math.round(dailyAccrual * daysServed * 100) / 100; // Round to 2 decimal places
+        policyMap.set(policy.leaveType, tenureBasedTotal);
+        console.log(`🔍 EmployeeService: ${policy.leaveType} - Policy: ${policy.totalDaysPerYear} days/year, Days served: ${daysServed}, Accrued: ${tenureBasedTotal} days`);
       });
 
       // Get all leave requests for the year (both approved and pending)
@@ -1303,5 +1436,550 @@ export class EmployeeService {
       }
       throw new Error('Failed to terminate probation');
     }
+  }
+
+  /**
+   * Update employee probation dates and duration
+   */
+  static async updateProbation(
+    employeeId: string,
+    updateData: {
+      probationStartDate?: Date | string;
+      probationEndDate?: Date | string;
+      probationDuration?: number;
+    }
+  ): Promise<Employee> {
+    try {
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId }
+      });
+
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      const updateFields: any = {};
+      
+      if (updateData.probationStartDate) {
+        updateFields.probationStartDate = new Date(updateData.probationStartDate);
+      }
+      
+      if (updateData.probationEndDate) {
+        updateFields.probationEndDate = new Date(updateData.probationEndDate);
+      }
+      
+      if (updateData.probationDuration !== undefined) {
+        updateFields.probationDuration = updateData.probationDuration;
+        // If start date exists but end date doesn't, recalculate end date
+        if (updateFields.probationStartDate && !updateData.probationEndDate) {
+          const startDate = updateFields.probationStartDate || employee.probationStartDate;
+          if (startDate) {
+            updateFields.probationEndDate = new Date(
+              new Date(startDate).getTime() + updateData.probationDuration * 24 * 60 * 60 * 1000
+            );
+          }
+        }
+      }
+
+      const updatedEmployee = await prisma.user.update({
+        where: { id: employeeId },
+        data: updateFields,
+        include: {
+          manager: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      });
+
+      const leaveBalance = await EmployeeService.getEmployeeLeaveBalance(updatedEmployee.id);
+
+      return {
+        id: updatedEmployee.id,
+        name: updatedEmployee.name,
+        email: updatedEmployee.email,
+        phone: undefined,
+        department: updatedEmployee.department || 'Unassigned',
+        position: 'Employee',
+        role: updatedEmployee.role as 'admin' | 'manager' | 'employee',
+        managerId: updatedEmployee.managerId || undefined,
+        managerName: updatedEmployee.manager?.name,
+        isActive: updatedEmployee.isActive,
+        joinDate: updatedEmployee.joinDate || updatedEmployee.createdAt,
+        lastLogin: undefined,
+        leaveBalance,
+        avatar: updatedEmployee.profilePicture || undefined,
+        bio: undefined,
+        probationStatus: updatedEmployee.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+        probationStartDate: updatedEmployee.probationStartDate,
+        probationEndDate: updatedEmployee.probationEndDate,
+        probationDuration: updatedEmployee.probationDuration,
+        probationCompletedAt: updatedEmployee.probationCompletedAt,
+        employeeType: updatedEmployee.employeeType as 'onshore' | 'offshore' | null,
+        region: updatedEmployee.region,
+        timezone: updatedEmployee.timezone,
+        createdAt: updatedEmployee.createdAt,
+        updatedAt: updatedEmployee.updatedAt
+      };
+    } catch (error) {
+      console.error('Error updating probation:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to update probation');
+    }
+  }
+
+  /**
+   * Get employees with probation ending soon (within specified days)
+   */
+  static async getEmployeesWithProbationEndingSoon(daysAhead: number = 7): Promise<Employee[]> {
+    try {
+      const today = new Date();
+      const futureDate = new Date(today.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+      
+      const employees = await prisma.user.findMany({
+        where: {
+          role: 'employee',
+          probationStatus: {
+            in: ['active', 'extended']
+          },
+          probationEndDate: {
+            gte: today,
+            lte: futureDate
+          },
+          isActive: true
+        },
+        include: {
+          manager: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        },
+        orderBy: {
+          probationEndDate: 'asc'
+        }
+      });
+
+      const employeesWithBalance = await Promise.all(
+        employees.map(async (emp) => {
+          const leaveBalance = await EmployeeService.getEmployeeLeaveBalance(emp.id);
+          
+          return {
+            id: emp.id,
+            name: emp.name,
+            email: emp.email,
+            phone: undefined,
+            department: emp.department || 'Unassigned',
+            position: 'Employee',
+            role: emp.role as 'admin' | 'manager' | 'employee',
+            managerId: emp.managerId || undefined,
+            managerName: emp.manager?.name,
+            isActive: emp.isActive,
+            joinDate: emp.joinDate || emp.createdAt,
+            lastLogin: undefined,
+            leaveBalance,
+            avatar: emp.profilePicture || undefined,
+            bio: undefined,
+            probationStatus: emp.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
+            probationStartDate: emp.probationStartDate,
+            probationEndDate: emp.probationEndDate,
+            probationDuration: emp.probationDuration,
+            probationCompletedAt: emp.probationCompletedAt,
+            employeeType: emp.employeeType as 'onshore' | 'offshore' | null,
+            region: emp.region,
+            timezone: emp.timezone,
+            createdAt: emp.createdAt,
+            updatedAt: emp.updatedAt
+          };
+        })
+      );
+
+      return employeesWithBalance;
+    } catch (error) {
+      console.error('Error fetching employees with probation ending soon:', error);
+      throw new Error('Failed to fetch employees with probation ending soon');
+    }
+  }
+
+  /**
+   * Get paid and unpaid leave statistics for all employees
+   */
+  static async getPaidUnpaidLeaveStats(filters?: {
+    department?: string;
+    year?: number;
+    employeeId?: string;
+  }): Promise<Array<{
+    employeeId: string;
+    employeeName: string;
+    employeeEmail: string;
+    department: string | null;
+    totalPaidDays: number;
+    totalUnpaidDays: number;
+    totalDays: number;
+    byLeaveType: Array<{
+      leaveType: string;
+      paidDays: number;
+      unpaidDays: number;
+      totalDays: number;
+    }>;
+    leaveRequests: Array<{
+      id: string;
+      leaveType: string;
+      startDate: Date;
+      endDate: Date;
+      totalDays: number;
+      isPaid: boolean;
+      status: string;
+      submittedAt: Date;
+    }>;
+  }>> {
+    try {
+      const year = filters?.year || new Date().getFullYear();
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31, 23, 59, 59);
+
+      // Build where clause - filter by leave dates (startDate/endDate) that fall within the year
+      // This ensures we count leaves that were actually taken during the year, not just submitted
+      const whereClause: any = {
+        status: 'approved',
+        OR: [
+          // Leaves that start within the year
+          {
+            startDate: {
+              gte: startOfYear,
+              lte: endOfYear
+            }
+          },
+          // Leaves that end within the year
+          {
+            endDate: {
+              gte: startOfYear,
+              lte: endOfYear
+            }
+          },
+          // Leaves that span the entire year (start before and end after)
+          {
+            startDate: { lte: startOfYear },
+            endDate: { gte: endOfYear }
+          }
+        ]
+      };
+
+      if (filters?.employeeId) {
+        whereClause.userId = filters.employeeId;
+      }
+
+      // Get all approved leave requests for the year (based on actual leave dates)
+      const leaveRequests = await prisma.leaveRequest.findMany({
+        where: whereClause,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              department: true,
+              probationStatus: true,
+              probationStartDate: true,
+              probationEndDate: true,
+              joinDate: true,
+              createdAt: true
+            }
+          }
+        },
+        orderBy: {
+          startDate: 'desc'
+        }
+      });
+
+      // Filter by department if specified
+      let filteredRequests = leaveRequests;
+      if (filters?.department && filters.department !== 'all') {
+        filteredRequests = leaveRequests.filter(req => req.user.department === filters.department);
+      }
+
+      // Group by employee
+      const employeeStatsMap = new Map<string, {
+        employeeId: string;
+        employeeName: string;
+        employeeEmail: string;
+        department: string | null;
+        totalPaidDays: number;
+        totalUnpaidDays: number;
+        totalDays: number;
+        byLeaveType: Map<string, { paidDays: number; unpaidDays: number; totalDays: number }>;
+        leaveRequests: Array<{
+          id: string;
+          leaveType: string;
+          startDate: Date;
+          endDate: Date;
+          totalDays: number;
+          isPaid: boolean;
+          status: string;
+          submittedAt: Date;
+        }>;
+      }>();
+
+      // Process requests asynchronously to calculate paid/unpaid correctly
+      for (const request of filteredRequests) {
+        const employeeId = request.userId;
+        const requestStartDate = new Date(request.startDate);
+        const requestEndDate = new Date(request.endDate);
+        const employee = request.user;
+        
+        // Calculate actual days within the selected year
+        // If leave spans multiple years, only count days within the selected year
+        const leaveStartInYear = requestStartDate < startOfYear ? startOfYear : requestStartDate;
+        const leaveEndInYear = requestEndDate > endOfYear ? endOfYear : requestEndDate;
+        
+        // Calculate days within the year
+        const daysInYear = Math.max(0, Math.ceil((leaveEndInYear.getTime() - leaveStartInYear.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+        const totalDays = parseFloat(request.totalDays.toString());
+        
+        // If leave spans outside the year, calculate proportional days
+        let daysToCount = totalDays;
+        if (requestStartDate < startOfYear || requestEndDate > endOfYear) {
+          // Calculate proportion of leave days that fall within the selected year
+          const totalLeaveDays = Math.ceil((requestEndDate.getTime() - requestStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          if (totalLeaveDays > 0) {
+            daysToCount = (daysInYear / totalLeaveDays) * totalDays;
+            daysToCount = Math.round(daysToCount * 100) / 100; // Round to 2 decimal places
+          }
+        }
+        
+        // Calculate paid/unpaid days based on probation status and balance
+        let paidDays = 0;
+        let unpaidDays = daysToCount;
+        
+        // Check if employee was in probation when leave was taken
+        const wasInProbation = this.wasEmployeeInProbation(
+          employee,
+          requestStartDate
+        );
+        
+        if (wasInProbation) {
+          // All leaves taken during probation are unpaid
+          paidDays = 0;
+          unpaidDays = daysToCount;
+        } else {
+          // Employee completed probation - calculate based on available balance at leave time
+          const balanceAtLeaveTime = await this.calculateBalanceAtDate(
+            employeeId,
+            request.leaveType,
+            requestStartDate
+          );
+          
+          // Split leave into paid and unpaid portions
+          // Paid = min(leave days, available balance)
+          // Unpaid = remaining days that exceed balance
+          paidDays = Math.min(daysToCount, Math.max(0, balanceAtLeaveTime));
+          unpaidDays = Math.max(0, daysToCount - balanceAtLeaveTime);
+          
+          // Round to 2 decimal places
+          paidDays = Math.round(paidDays * 100) / 100;
+          unpaidDays = Math.round(unpaidDays * 100) / 100;
+        }
+
+        if (!employeeStatsMap.has(employeeId)) {
+          employeeStatsMap.set(employeeId, {
+            employeeId,
+            employeeName: request.user.name,
+            employeeEmail: request.user.email,
+            department: request.user.department,
+            totalPaidDays: 0,
+            totalUnpaidDays: 0,
+            totalDays: 0,
+            byLeaveType: new Map(),
+            leaveRequests: []
+          });
+        }
+
+        const stats = employeeStatsMap.get(employeeId)!;
+        
+        // Update totals with calculated paid/unpaid days
+        stats.totalPaidDays += paidDays;
+        stats.totalUnpaidDays += unpaidDays;
+        stats.totalDays += daysToCount;
+
+        // Update by leave type
+        const leaveType = request.leaveType;
+        if (!stats.byLeaveType.has(leaveType)) {
+          stats.byLeaveType.set(leaveType, { paidDays: 0, unpaidDays: 0, totalDays: 0 });
+        }
+        const typeStats = stats.byLeaveType.get(leaveType)!;
+        typeStats.paidDays += paidDays;
+        typeStats.unpaidDays += unpaidDays;
+        typeStats.totalDays += daysToCount;
+
+        // Add to leave requests (store calculated paid/unpaid for display)
+        stats.leaveRequests.push({
+          id: request.id,
+          leaveType: request.leaveType,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          totalDays,
+          isPaid: paidDays > 0, // True if any paid days, false if all unpaid
+          status: request.status,
+          submittedAt: request.submittedAt
+        });
+      }
+
+      // Convert Map to Array and format byLeaveType
+      const result = Array.from(employeeStatsMap.values()).map(stats => ({
+        ...stats,
+        byLeaveType: Array.from(stats.byLeaveType.entries()).map(([leaveType, typeStats]) => ({
+          leaveType,
+          ...typeStats
+        }))
+      }));
+
+      // Sort by total days (descending)
+      result.sort((a, b) => b.totalDays - a.totalDays);
+
+      return result;
+    } catch (error) {
+      console.error('Error in getPaidUnpaidLeaveStats:', error);
+      throw new Error('Failed to fetch paid/unpaid leave statistics');
+    }
+  }
+
+  /**
+   * Check if employee was in probation on a specific date
+   */
+  private static wasEmployeeInProbation(
+    employee: { probationStatus: string | null; probationStartDate: Date | null; probationEndDate: Date | null },
+    checkDate: Date
+  ): boolean {
+    // If no probation status, employee was not in probation
+    if (!employee.probationStatus || employee.probationStatus === 'completed' || employee.probationStatus === 'terminated') {
+      return false;
+    }
+
+    // If probation status is active or extended, check dates
+    if (employee.probationStatus === 'active' || employee.probationStatus === 'extended') {
+      const startDate = employee.probationStartDate ? new Date(employee.probationStartDate) : null;
+      const endDate = employee.probationEndDate ? new Date(employee.probationEndDate) : null;
+      
+      if (startDate && endDate) {
+        // Check if the date falls within probation period
+        return checkDate >= startDate && checkDate <= endDate;
+      } else if (startDate) {
+        // If only start date exists, check if date is after start
+        return checkDate >= startDate;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Calculate available leave balance at a specific date (before the leave was taken)
+   */
+  private static async calculateBalanceAtDate(
+    employeeId: string,
+    leaveType: string,
+    asOfDate: Date
+  ): Promise<number> {
+    try {
+      const year = asOfDate.getFullYear();
+      
+      // Get employee info
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId },
+        select: {
+          joinDate: true,
+          createdAt: true
+        }
+      });
+
+      if (!employee) {
+        return 0;
+      }
+
+      // Calculate days served up to the leave date (not current date)
+      const joinDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
+      const daysServed = this.calculateDaysServed(joinDate, asOfDate);
+
+      // Get leave policy for this leave type
+      const leavePolicy = await prisma.leavePolicy.findUnique({
+        where: { leaveType },
+        select: { totalDaysPerYear: true }
+      });
+
+      if (!leavePolicy) {
+        return 0;
+      }
+
+      // Calculate accrued balance up to the leave date
+      const dailyAccrual = leavePolicy.totalDaysPerYear / 365;
+      const accruedBalance = Math.round(dailyAccrual * daysServed * 100) / 100;
+
+      // Get all approved leave requests of this type BEFORE the leave start date
+      const startOfYear = new Date(year, 0, 1);
+      const requestsBeforeLeave = await prisma.leaveRequest.findMany({
+        where: {
+          userId: employeeId,
+          leaveType: leaveType as any, // Cast to Prisma enum type
+          status: 'approved',
+          startDate: {
+            gte: startOfYear,
+            lt: asOfDate // Only leaves that started before this leave
+          }
+        },
+        select: {
+          totalDays: true
+        }
+      });
+
+      // Calculate used days before this leave
+      const usedDays = requestsBeforeLeave.reduce((sum, req) => {
+        return sum + parseFloat(req.totalDays.toString());
+      }, 0);
+
+      // Available balance = accrued - used
+      const availableBalance = Math.max(0, accruedBalance - usedDays);
+      
+      return Math.round(availableBalance * 100) / 100;
+    } catch (error) {
+      console.error('Error calculating balance at date:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Calculate days served based on join date (for daily accrual)
+   */
+  private static calculateDaysServed(startDate: Date, currentDate: Date): number {
+    const start = new Date(startDate);
+    const current = new Date(currentDate);
+    
+    // Set time to midnight to calculate full days
+    start.setHours(0, 0, 0, 0);
+    current.setHours(0, 0, 0, 0);
+    
+    // Calculate difference in milliseconds
+    const diffTime = current.getTime() - start.getTime();
+    
+    // Convert to days (including partial days)
+    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    
+    // Return the actual days served (can be 0 on first day, 1 on second day, etc.)
+    // Round to 2 decimal places for precision
+    return Math.max(0, Math.round(diffDays * 100) / 100);
+  }
+
+  /**
+   * Calculate months served based on join date (deprecated - kept for backward compatibility)
+   * @deprecated Use calculateDaysServed for daily accrual instead
+   */
+  private static calculateMonthsServed(startDate: Date, currentDate: Date): number {
+    const daysServed = this.calculateDaysServed(startDate, currentDate);
+    // Convert days to months for backward compatibility
+    return daysServed / 30.44; // Average days per month
   }
 }

@@ -69,6 +69,16 @@ router.put('/team/members/:id',
   TeamController.updateTeamMember
 );
 
+router.post('/team/members/:id/reset-password', 
+  validateParams(managerSchemas.idParam),
+  TeamController.resetTeamMemberPassword
+);
+
+router.get('/team/members/:id/edit-history', 
+  validateParams(managerSchemas.idParam),
+  TeamController.getTeamMemberEditHistory
+);
+
 router.patch('/team/members/:id/toggle-status', 
   validateParams(managerSchemas.idParam),
   validateRequest(managerSchemas.toggleTeamMemberStatus),
@@ -98,6 +108,19 @@ router.get('/team/departments',
 router.get('/team/members/:id/performance', 
   validateParams(managerSchemas.idParam),
   TeamController.getTeamMemberPerformance
+);
+
+// Manager User Approval Routes
+router.get('/team/pending-approvals', 
+  TeamController.getPendingUserApprovals
+);
+
+router.post('/team/users/:userId/approve', 
+  TeamController.approveUserAccess
+);
+
+router.post('/team/users/:userId/reject', 
+  TeamController.rejectUserAccess
 );
 
 router.get('/team/members/:id/recent-leaves', 

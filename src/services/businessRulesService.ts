@@ -20,6 +20,10 @@ export interface LeaveRequestValidationResult extends BusinessRuleResult {
   estimatedApprovalTime?: string;
   conflictWithHolidays?: string[];
   conflictWithOtherRequests?: string[];
+  salaryDeduction?: {
+    days: number;
+    amount: number;
+  };
 }
 
 export interface ManagerAssignmentResult extends BusinessRuleResult {
@@ -95,19 +99,38 @@ export class BusinessRulesService {
         leaveRequest.isHalfDay
       );
 
-      // Rule 1: Check leave balance with strict limit enforcement
-      // Employees cannot exceed their limit - only managers/admins can manually add days
+      // Rule 1: Check leave balance - allow negative balance with salary deduction
+      // Employees can exceed their limit, but excess days will be deducted from salary
       const balanceResult = await this.validateLeaveBalance(
         userId,
         leaveRequest.leaveType,
         totalDays,
-        true // Enforce strict limits - employees cannot exceed their allocated leave
+        false // Allow negative balance with salary deduction
       );
-      if (!balanceResult.isValid) {
+      
+      // If balance check fails for reasons other than negative balance, reject
+      if (!balanceResult.isValid && !balanceResult.salaryDeduction) {
         result.isValid = false;
         result.canSubmit = false;
         result.message = balanceResult.message;
         return result;
+      }
+      
+      // If there's a negative balance, add warning but allow submission
+      if (balanceResult.salaryDeduction) {
+        // Initialize warnings array if undefined
+        if (!result.warnings) {
+          result.warnings = [];
+        }
+        // Add warning message as string
+        const warningMessage = balanceResult.message || 'Leave request exceeds available balance';
+        result.warnings.push(warningMessage);
+        // Add additional warning details if available
+        if (balanceResult.warnings && balanceResult.warnings.length > 0) {
+          result.warnings.push(...balanceResult.warnings);
+        }
+        // Store salary deduction info for later processing
+        result.salaryDeduction = balanceResult.salaryDeduction;
       }
 
       // Rule 2: Check minimum notice period
@@ -320,13 +343,34 @@ export class BusinessRulesService {
   }
 
   /**
-   * Calculate real-time leave balance
+   * Calculate real-time leave balance based on employee tenure
+   * Leave balance = (totalDaysPerYear / 365) * daysServed (daily accrual)
+   * Leaves accrue day by day from the join date
    */
   static async calculateLeaveBalance(
     userId: string,
     year: number = new Date().getFullYear()
   ): Promise<{ [leaveType: string]: { total: number; used: number; remaining: number; pending: number } }> {
     try {
+      // Get employee info including joinDate
+      const employee = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          joinDate: true,
+          createdAt: true
+        }
+      });
+
+      if (!employee) {
+        console.error('Employee not found:', userId);
+        return {};
+      }
+
+      // Calculate days served (for daily accrual)
+      const startDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
+      const currentDate = new Date();
+      const daysServed = this.calculateDaysServed(startDate, currentDate);
+
       // Get active leave policies
       const policies = await prisma.leavePolicy.findMany({
         where: { isActive: true }
@@ -334,17 +378,20 @@ export class BusinessRulesService {
 
       const policyMap = new Map<string, number>();
       policies.forEach(policy => {
-        policyMap.set(policy.leaveType, policy.totalDaysPerYear);
+        // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
+        const dailyAccrual = policy.totalDaysPerYear / 365; // Daily accrual rate
+        const tenureBasedTotal = Math.round(dailyAccrual * daysServed * 100) / 100; // Round to 2 decimal places
+        policyMap.set(policy.leaveType, tenureBasedTotal);
       });
 
       // Get leave requests for the year
-      const startDate = new Date(year, 0, 1);
-      const endDate = new Date(year, 11, 31);
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31);
 
       const requests = await prisma.leaveRequest.findMany({
         where: {
           userId,
-          submittedAt: { gte: startDate, lte: endDate }
+          submittedAt: { gte: startOfYear, lte: endOfYear }
         },
         select: {
           leaveType: true,
@@ -392,6 +439,37 @@ export class BusinessRulesService {
   }
 
   /**
+   * Calculate days served based on join date (for daily accrual)
+   */
+  private static calculateDaysServed(startDate: Date, currentDate: Date): number {
+    const start = new Date(startDate);
+    const current = new Date(currentDate);
+    
+    // Set time to midnight to calculate full days
+    start.setHours(0, 0, 0, 0);
+    current.setHours(0, 0, 0, 0);
+    
+    // Calculate difference in milliseconds
+    const diffTime = current.getTime() - start.getTime();
+    
+    // Convert to days (including partial days)
+    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    
+    // Return the actual days served (can be 0 on first day, 1 on second day, etc.)
+    return Math.max(0, Math.round(diffDays * 100) / 100);
+  }
+
+  /**
+   * Calculate months served based on join date (deprecated - kept for backward compatibility)
+   * @deprecated Use calculateDaysServed for daily accrual instead
+   */
+  private static calculateMonthsServed(startDate: Date, currentDate: Date): number {
+    const daysServed = this.calculateDaysServed(startDate, currentDate);
+    // Convert days to months for backward compatibility
+    return daysServed / 30.44; // Average days per month
+  }
+
+  /**
    * Validate leave balance - Enhanced to allow negative balance with salary deduction
    * Now with strict limit enforcement option
    */
@@ -421,8 +499,13 @@ export class BusinessRulesService {
       if (enforceStrictLimit) {
         return {
           isValid: false,
-          message: `Leave limit reached. You have ${leaveBalance.remaining} days remaining, but requested ${requestedDays} days. Please contact your manager or admin to request additional leave days.`,
-          warnings: [`Leave limit exceeded by ${excessDays} days`, `Contact manager/admin to manually add additional leave days`]
+          message: `Leave limit reached. You have ${leaveBalance.remaining} day${leaveBalance.remaining !== 1 ? 's' : ''} remaining, but requested ${requestedDays} day${requestedDays !== 1 ? 's' : ''}. Please contact your manager or admin to request additional leave days. They can add leave days from the Team Overview (for managers) or Employee Management page (for admins).`,
+          warnings: [
+            `Leave limit exceeded by ${excessDays} day${excessDays !== 1 ? 's' : ''}`, 
+            `Contact your manager/admin to manually add additional leave days`,
+            `Managers: Go to Team Overview → Select Team Member → View Leave Balance → Adjust Leave`,
+            `Admins: Go to Employees → Select Employee → View Balance → Adjust Leave`
+          ]
         };
       }
       

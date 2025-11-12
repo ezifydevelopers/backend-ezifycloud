@@ -43,7 +43,11 @@ export class LeaveRequestService {
 
       // Calculate total days using automated working days calculation (excludes weekends and holidays)
       let totalDays: number;
-      if (formData.isHalfDay) {
+      if (formData.shortLeaveHours) {
+        // Short leave: calculate based on hours (assuming 8 hours per day)
+        // 1 hour = 0.125, 2 hours = 0.25, 3 hours = 0.375
+        totalDays = formData.shortLeaveHours / 8;
+      } else if (formData.isHalfDay) {
         totalDays = 0.5;
       } else {
         const { WorkingDaysService } = await import('../../../services/workingDaysService');
@@ -132,14 +136,42 @@ export class LeaveRequestService {
         );
       }
 
-      // Fetch leave policy to determine if leave is paid
+      // Get employee info (including probation status for unpaid check)
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId },
+        select: {
+          name: true,
+          email: true,
+          department: true,
+          profilePicture: true,
+          probationStatus: true,
+          probationStartDate: true,
+          probationEndDate: true
+        }
+      });
+
+      // Auto-detect if leave is paid from leave policy
       const leavePolicy = await prisma.leavePolicy.findUnique({
         where: { leaveType: formData.leaveType },
         select: { isPaid: true }
       });
-      
       // Default to true (paid) if policy not found
-      const isPaid = leavePolicy?.isPaid ?? true;
+      let isPaid = leavePolicy?.isPaid ?? true;
+
+      // Check if employee is in probation period - if so, mark ALL leaves as unpaid
+      const isInProbation = employee?.probationStatus === 'active' || employee?.probationStatus === 'extended';
+      if (isInProbation) {
+        // All leaves taken during probation are unpaid
+        isPaid = false;
+        console.log('💰 LeaveRequestService: Employee is in probation, marking as unpaid leave');
+      }
+
+      // Check if request exceeds leave balance - if so, mark as unpaid
+      if (businessRulesResult.salaryDeduction) {
+        // Request exceeds available balance, mark as unpaid
+        isPaid = false;
+        console.log('💰 LeaveRequestService: Request exceeds balance, marking as unpaid leave');
+      }
 
       // Create leave request
       const leaveRequest = await prisma.leaveRequest.create({
@@ -153,19 +185,9 @@ export class LeaveRequestService {
           isPaid,
           isHalfDay: formData.isHalfDay || false,
           halfDayPeriod: formData.halfDayPeriod as any || null, // Cast to Prisma enum
+          shortLeaveHours: formData.shortLeaveHours || null,
           status: 'pending',
           submittedAt: new Date()
-        }
-      });
-
-      // Get employee info for response
-      const employee = await prisma.user.findUnique({
-        where: { id: employeeId },
-        select: {
-          name: true,
-          email: true,
-          department: true,
-          profilePicture: true
         }
       });
 

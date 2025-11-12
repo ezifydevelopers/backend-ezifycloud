@@ -39,6 +39,8 @@ export const updateEmployeeSchema = Joi.object({
   employeeType: Joi.string().valid('onshore', 'offshore').optional().allow(null),
   region: Joi.string().optional().allow(null, ''),
   timezone: Joi.string().optional().allow(null, ''),
+  joinDate: Joi.date().iso().optional().allow(null),
+  probationStatus: Joi.string().valid('active', 'completed', 'extended', 'terminated').optional().allow(null),
 });
 
 export const toggleEmployeeStatusSchema = Joi.object({
@@ -241,6 +243,7 @@ export const systemConfigSettingsSchema = Joi.object({
   logRetentionDays: Joi.number().integer().min(30).max(2555).optional(),
   systemVersion: Joi.string().optional(),
   lastUpdate: Joi.string().optional(),
+  defaultProbationDuration: Joi.number().integer().min(30).max(365).optional(),
 });
 
 // Dashboard Schemas

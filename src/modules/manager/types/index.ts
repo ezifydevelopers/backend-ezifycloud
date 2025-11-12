@@ -453,6 +453,7 @@ export interface LeaveRequestFormData {
   workHandover?: string;
   isHalfDay?: boolean;
   halfDayPeriod?: 'morning' | 'afternoon';
+  shortLeaveHours?: 1 | 2 | 3;
   attachments?: string[];
 }
 

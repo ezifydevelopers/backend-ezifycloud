@@ -53,6 +53,11 @@ router.get('/employees',
   EmployeeController.getEmployees
 );
 
+// This route must come BEFORE /employees/:id routes to avoid route conflicts
+router.get('/employees/paid-unpaid-leaves', 
+  EmployeeController.getPaidUnpaidLeaveStats
+);
+
 router.get('/employees/:id', 
   validateParams(adminSchemas.idParam),
   EmployeeController.getEmployeeById
@@ -67,6 +72,16 @@ router.put('/employees/:id',
   validateParams(adminSchemas.idParam),
   validateRequest(adminSchemas.updateEmployee),
   EmployeeController.updateEmployee
+);
+
+router.post('/employees/:id/reset-password', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.resetEmployeePassword
+);
+
+router.get('/employees/:id/edit-history', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.getEmployeeEditHistory
 );
 
 router.delete('/employees/:id', 
@@ -156,6 +171,15 @@ router.post('/employees/:id/probation/extend',
 router.post('/employees/:id/probation/terminate', 
   validateParams(adminSchemas.idParam),
   EmployeeController.terminateProbation
+);
+
+router.put('/employees/:id/probation', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.updateProbation
+);
+
+router.get('/employees/probation/ending-soon', 
+  EmployeeController.getProbationEndingSoon
 );
 
 router.get('/employees/departments', 

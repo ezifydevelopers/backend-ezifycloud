@@ -138,6 +138,7 @@ model LeaveRequest {
   rejectedReason String?        @map("rejected_reason")
   isHalfDay      Boolean        @default(false) @map("is_half_day")
   halfDayPeriod  HalfDayPeriod? @map("half_day_period")
+  shortLeaveHours Int?          @map("short_leave_hours") // 1, 2, or 3 hours for short leave
   comments       String?
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
@@ -1016,4 +1017,19 @@ model Notification {
   @@index([read])
   @@index([createdAt])
   @@map("notifications")
+}
+
+model SystemConfig {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   // JSON string for complex values
+  description String?
+  category    String?  // 'probation', 'leave', 'attendance', etc.
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([key])
+  @@index([category])
+  @@map("system_configs")
 }

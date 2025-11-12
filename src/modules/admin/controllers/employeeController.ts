@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import { EmployeeService } from '../services/employeeService';
 import { ApiResponse } from '../../../types';
 import { EmployeeFilters } from '../types';
@@ -132,6 +133,7 @@ export class EmployeeController {
     try {
       const { id } = req.params;
       const updateData = req.body;
+      const editor = (req as any).user;
 
       if (!id) {
         const response: ApiResponse = {
@@ -143,7 +145,15 @@ export class EmployeeController {
         return;
       }
 
-      const employee = await EmployeeService.updateEmployee(id, updateData);
+      // Get editor info for audit log
+      const editedBy = editor ? {
+        userId: editor.id,
+        userName: editor.name || editor.email,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] as string || undefined,
+        userAgent: req.headers['user-agent']
+      } : undefined;
+
+      const employee = await EmployeeService.updateEmployee(id, updateData, editedBy);
 
       const response: ApiResponse = {
         success: true,
@@ -927,20 +937,45 @@ export class EmployeeController {
   }
 
   /**
-   * Get pending user approvals
+   * Get pending user approvals with filtering and search
    */
   static async getPendingApprovals(req: Request, res: Response): Promise<void> {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
       const skip = (page - 1) * limit;
+      const search = req.query.search as string || '';
+      const role = req.query.role as string;
+      const department = req.query.department as string;
+
+      // Build where clause
+      const where: any = {
+        approvalStatus: 'pending',
+        isActive: true
+      };
+
+      // Add search filter
+      if (search) {
+        where.OR = [
+          { name: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { department: { contains: search, mode: 'insensitive' } }
+        ];
+      }
+
+      // Add role filter
+      if (role && role !== 'all') {
+        where.role = role;
+      }
+
+      // Add department filter
+      if (department && department !== 'all') {
+        where.department = department;
+      }
 
       const [users, total] = await Promise.all([
         prisma.user.findMany({
-          where: {
-            approvalStatus: 'pending',
-            isActive: true
-          },
+          where,
           select: {
             id: true,
             name: true,
@@ -957,22 +992,17 @@ export class EmployeeController {
           skip,
           take: limit
         }),
-        prisma.user.count({
-          where: {
-            approvalStatus: 'pending',
-            isActive: true
-          }
-        })
+        prisma.user.count({ where })
       ]);
 
       res.status(200).json({
         success: true,
         message: 'Pending approvals retrieved successfully',
-        data: users,
-        pagination: {
+        data: {
+          data: users,
+          total,
           page,
           limit,
-          total,
           totalPages: Math.ceil(total / limit)
         }
       });
@@ -1060,6 +1090,225 @@ export class EmployeeController {
         success: false,
         message: error instanceof Error ? error.message : 'Failed to terminate probation'
       });
+    }
+  }
+
+  /**
+   * Update employee probation dates and duration
+   */
+  static async updateProbation(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { probationStartDate, probationEndDate, probationDuration } = req.body;
+
+      const employee = await EmployeeService.updateProbation(id, {
+        probationStartDate,
+        probationEndDate,
+        probationDuration
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Employee probation updated successfully',
+        data: employee
+      });
+    } catch (error) {
+      console.error('Error in updateProbation:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to update probation'
+      });
+    }
+  }
+
+  /**
+   * Get employees with probation ending soon
+   */
+  static async getProbationEndingSoon(req: Request, res: Response): Promise<void> {
+    try {
+      const daysAhead = req.query.days ? parseInt(req.query.days as string, 10) : 7;
+      
+      const employees = await EmployeeService.getEmployeesWithProbationEndingSoon(daysAhead);
+
+      res.status(200).json({
+        success: true,
+        message: 'Employees with probation ending soon retrieved successfully',
+        data: employees
+      });
+    } catch (error) {
+      console.error('Error in getProbationEndingSoon:', error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to fetch employees with probation ending soon'
+      });
+    }
+  }
+
+  /**
+   * Get employee edit history
+   */
+  static async getEmployeeEditHistory(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Employee ID is required',
+          error: 'Missing employee ID'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const { AuditService } = await import('../../audit/services/auditService');
+      const result = await AuditService.getAuditLogs({
+        targetType: 'employee',
+        targetId: id,
+        action: 'update',
+        page,
+        limit
+      });
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Employee edit history retrieved successfully',
+        data: result.logs,
+        pagination: {
+          page: result.page,
+          limit: result.limit,
+          total: result.total,
+          totalPages: result.totalPages
+        }
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in getEmployeeEditHistory:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to retrieve employee edit history',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Get paid and unpaid leave statistics for all employees
+   */
+  static async getPaidUnpaidLeaveStats(req: Request, res: Response): Promise<void> {
+    try {
+      const department = req.query.department as string | undefined;
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+      const employeeId = req.query.employeeId as string | undefined;
+
+      const stats = await EmployeeService.getPaidUnpaidLeaveStats({
+        department,
+        year,
+        employeeId
+      });
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Paid/unpaid leave statistics retrieved successfully',
+        data: stats
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in getPaidUnpaidLeaveStats:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to retrieve paid/unpaid leave statistics',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Reset employee password (Admin only)
+   */
+  static async resetEmployeePassword(req: Request, res: Response): Promise<void> {
+    try {
+      const { employeeId } = req.params;
+      const { newPassword } = req.body;
+      const adminId = (req as any).user?.id;
+
+      if (!employeeId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Employee ID is required',
+          error: 'Missing employee ID'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (!newPassword || newPassword.length < 6) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'New password must be at least 6 characters long',
+          error: 'Invalid password'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Check if employee exists
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId },
+        select: { id: true, email: true, name: true, role: true }
+      });
+
+      if (!employee) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Employee not found',
+          error: 'Employee does not exist'
+        };
+        res.status(404).json(response);
+        return;
+      }
+
+      // Hash new password
+      const saltRounds = 12;
+      const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+
+      // Update password
+      await prisma.user.update({
+        where: { id: employeeId },
+        data: {
+          passwordHash,
+          updatedAt: new Date()
+        }
+      });
+
+      // Log the action (you might want to create an audit log entry here)
+      console.log(`Admin ${adminId} reset password for employee ${employeeId} (${employee.email})`);
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Employee password has been reset successfully',
+        data: {
+          employeeId,
+          email: employee.email,
+          name: employee.name
+        }
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in resetEmployeePassword:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to reset employee password',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
     }
   }
 }

@@ -405,13 +405,21 @@ export class TeamService {
       teamwork?: number;
       communication?: number;
     };
-  }): Promise<TeamMember> {
+  }, editedBy?: { userId: string; userName: string; ipAddress?: string; userAgent?: string }): Promise<TeamMember> {
     try {
       // Check if member belongs to this manager
       const existingMember = await prisma.user.findFirst({
         where: { 
           id: memberId,
           managerId: managerId 
+        },
+        include: {
+          manager: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
         }
       });
 
@@ -430,6 +438,37 @@ export class TeamService {
         }
       }
 
+      // Track field changes for audit log
+      const fieldChanges: Array<{ field: string; oldValue: unknown; newValue: unknown }> = [];
+      const oldData: Record<string, unknown> = {};
+      const newData: Record<string, unknown> = {};
+
+      // Compare and track changes
+      const fieldsToTrack: Array<{ key: keyof typeof updateData; dbKey: string }> = [
+        { key: 'name', dbKey: 'name' },
+        { key: 'email', dbKey: 'email' },
+        { key: 'phone', dbKey: 'phone' },
+        { key: 'department', dbKey: 'department' },
+      ];
+
+      fieldsToTrack.forEach(({ key, dbKey }) => {
+        if (updateData[key] !== undefined) {
+          const oldValue = existingMember[dbKey as keyof typeof existingMember];
+          const newValue = updateData[key];
+          
+          // Only track if value actually changed
+          if (oldValue !== newValue) {
+            fieldChanges.push({
+              field: dbKey,
+              oldValue: oldValue ?? null,
+              newValue: newValue ?? null
+            });
+            oldData[dbKey] = oldValue ?? null;
+            newData[dbKey] = newValue ?? null;
+          }
+        }
+      });
+
       // Prepare update data
       const updateFields: any = {};
       
@@ -441,6 +480,12 @@ export class TeamService {
       if (updateData.password) {
         const saltRounds = 12;
         updateFields.passwordHash = await bcrypt.hash(updateData.password, saltRounds);
+        // Track password change (without showing the actual password)
+        fieldChanges.push({
+          field: 'password',
+          oldValue: '***',
+          newValue: '***'
+        });
       }
 
       // Update member
@@ -456,6 +501,31 @@ export class TeamService {
           }
         }
       });
+
+      // Log changes to audit log if there are any changes and editor info is provided
+      if (fieldChanges.length > 0 && editedBy) {
+        try {
+          const { AuditService } = await import('../../audit/services/auditService');
+          await AuditService.logUpdate(
+            editedBy.userId,
+            editedBy.userName,
+            'employee',
+            memberId,
+            fieldChanges,
+            oldData,
+            newData,
+            {
+              ipAddress: editedBy.ipAddress,
+              userAgent: editedBy.userAgent,
+              requestMethod: 'PUT',
+              requestPath: `/manager/team/members/${memberId}`
+            }
+          );
+        } catch (auditError) {
+          console.error('Failed to log team member update to audit log:', auditError);
+          // Don't throw - audit logging failure shouldn't break the update
+        }
+      }
 
       const leaveBalance = await this.getMemberLeaveBalance(member.id);
       const performance = await this.getMemberPerformance(member.id);
@@ -954,11 +1024,35 @@ export class TeamService {
 
   /**
    * Get member leave balance based on active policies and actual approved requests
+   * Now calculates based on employee tenure
    */
   private static async getMemberLeaveBalance(memberId: string): Promise<any> {
     try {
       const currentYear = new Date().getFullYear();
       console.log('🔍 TeamService: getMemberLeaveBalance called for member:', memberId, 'year:', currentYear);
+      
+      // Get employee info including joinDate
+      const employee = await prisma.user.findUnique({
+        where: { id: memberId },
+        select: {
+          joinDate: true,
+          createdAt: true
+        }
+      });
+
+      if (!employee) {
+        return {
+          annual: 0,
+          sick: 0,
+          casual: 0,
+          emergency: 0
+        };
+      }
+
+      // Calculate days served (for daily accrual)
+      const joinDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
+      const currentDate = new Date();
+      const daysServed = this.calculateDaysServed(joinDate, currentDate);
       
       // Get active leave policies from database
       const leavePolicies = await prisma.leavePolicy.findMany({
@@ -971,20 +1065,23 @@ export class TeamService {
         }
       });
 
-      // Create a map of leave types to their max days
+      // Create a map of leave types to their tenure-based max days
+      // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
       const policyMap = new Map<string, number>();
       leavePolicies.forEach(policy => {
-        policyMap.set(policy.leaveType, policy.totalDaysPerYear);
+        const dailyAccrual = policy.totalDaysPerYear / 365; // Daily accrual rate
+        const tenureBasedTotal = Math.round(dailyAccrual * daysServed * 100) / 100;
+        policyMap.set(policy.leaveType, tenureBasedTotal);
       });
 
       // Get all leave requests for the year (both approved and pending)
-      const startDate = new Date(currentYear, 0, 1);
-      const endDate = new Date(currentYear, 11, 31);
+      const startOfYear = new Date(currentYear, 0, 1);
+      const endOfYear = new Date(currentYear, 11, 31);
       
       const allRequests = await prisma.leaveRequest.findMany({
         where: {
           userId: memberId,
-          submittedAt: { gte: startDate, lte: endDate }
+          submittedAt: { gte: startOfYear, lte: endOfYear }
         },
         select: {
           leaveType: true,
@@ -1018,11 +1115,11 @@ export class TeamService {
       };
 
       // Only include leave types that have active policies
-      for (const [leaveType, totalDaysPerYear] of policyMap) {
+      for (const [leaveType, tenureBasedTotal] of policyMap) {
         const used = usedDays[leaveType] || 0; // Use calculated used days from approved requests
-        const remaining = Math.max(0, totalDaysPerYear - used);
+        const remaining = Math.max(0, tenureBasedTotal - used);
         
-        // Use the policy total as the authoritative source
+        // Use the tenure-based total as the authoritative source
         (result as any)[leaveType] = remaining;
       }
 
@@ -1229,5 +1326,261 @@ export class TeamService {
         capacityScore: 0
       };
     }
+  }
+
+  /**
+   * Get pending user approvals for manager's department
+   */
+  static async getPendingUserApprovals(managerId: string, page: number = 1, limit: number = 10): Promise<{
+    users: any[];
+    pagination: PaginationInfo;
+  }> {
+    try {
+      // Get manager's department
+      const manager = await prisma.user.findUnique({
+        where: { id: managerId },
+        select: { department: true }
+      });
+
+      if (!manager?.department) {
+        return {
+          users: [],
+          pagination: {
+            page,
+            limit,
+            totalItems: 0,
+            totalPages: 0,
+            hasNext: false,
+            hasPrev: false
+          }
+        };
+      }
+
+      const skip = (page - 1) * limit;
+
+      // Get pending users from manager's department OR assigned to this manager
+      const [users, total] = await Promise.all([
+        prisma.user.findMany({
+          where: {
+            approvalStatus: 'pending',
+            isActive: true,
+            OR: [
+              { department: manager.department },
+              { managerId: managerId }
+            ]
+          },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            department: true,
+            phone: true,
+            createdAt: true,
+            approvalStatus: true,
+            managerId: true
+          },
+          orderBy: {
+            createdAt: 'desc'
+          },
+          skip,
+          take: limit
+        }),
+        prisma.user.count({
+          where: {
+            approvalStatus: 'pending',
+            isActive: true,
+            OR: [
+              { department: manager.department },
+              { managerId: managerId }
+            ]
+          }
+        })
+      ]);
+
+      return {
+        users,
+        pagination: {
+          page,
+          limit,
+          totalItems: total,
+          totalPages: Math.ceil(total / limit),
+          hasNext: page < Math.ceil(total / limit),
+          hasPrev: page > 1
+        }
+      };
+    } catch (error) {
+      console.error('Error in getPendingUserApprovals:', error);
+      throw new Error('Failed to fetch pending user approvals');
+    }
+  }
+
+  /**
+   * Approve user access (manager can approve users from their department)
+   */
+  static async approveUserAccess(managerId: string, userId: string): Promise<any> {
+    try {
+      // Get manager's department
+      const manager = await prisma.user.findUnique({
+        where: { id: managerId },
+        select: { department: true, name: true }
+      });
+
+      if (!manager) {
+        throw new Error('Manager not found');
+      }
+
+      // Get user to approve
+      const userToApprove = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          department: true,
+          managerId: true,
+          approvalStatus: true
+        }
+      });
+
+      if (!userToApprove) {
+        throw new Error('User not found');
+      }
+
+      // Verify manager can approve this user (same department or assigned manager)
+      if (userToApprove.department !== manager.department && userToApprove.managerId !== managerId) {
+        throw new Error('You can only approve users from your department or assigned to you');
+      }
+
+      if (userToApprove.approvalStatus !== 'pending') {
+        throw new Error(`User is already ${userToApprove.approvalStatus}`);
+      }
+
+      // Approve user
+      const approvedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          approvalStatus: 'approved',
+          approvedBy: managerId,
+          approvedAt: new Date()
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          department: true,
+          approvalStatus: true,
+          approvedBy: true,
+          approvedAt: true
+        }
+      });
+
+      return approvedUser;
+    } catch (error) {
+      console.error('Error in approveUserAccess:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reject user access (manager can reject users from their department)
+   */
+  static async rejectUserAccess(managerId: string, userId: string, reason?: string): Promise<any> {
+    try {
+      // Get manager's department
+      const manager = await prisma.user.findUnique({
+        where: { id: managerId },
+        select: { department: true, name: true }
+      });
+
+      if (!manager) {
+        throw new Error('Manager not found');
+      }
+
+      // Get user to reject
+      const userToReject = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          department: true,
+          managerId: true,
+          approvalStatus: true
+        }
+      });
+
+      if (!userToReject) {
+        throw new Error('User not found');
+      }
+
+      // Verify manager can reject this user (same department or assigned manager)
+      if (userToReject.department !== manager.department && userToReject.managerId !== managerId) {
+        throw new Error('You can only reject users from your department or assigned to you');
+      }
+
+      if (userToReject.approvalStatus !== 'pending') {
+        throw new Error(`User is already ${userToReject.approvalStatus}`);
+      }
+
+      // Reject user
+      const rejectedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          approvalStatus: 'rejected',
+          approvedBy: managerId,
+          approvedAt: new Date(),
+          rejectionReason: reason || 'Rejected by department manager'
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          department: true,
+          approvalStatus: true,
+          approvedBy: true,
+          approvedAt: true,
+          rejectionReason: true
+        }
+      });
+
+      return rejectedUser;
+    } catch (error) {
+      console.error('Error in rejectUserAccess:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate days served based on join date (for daily accrual)
+   */
+  private static calculateDaysServed(startDate: Date, currentDate: Date): number {
+    const start = new Date(startDate);
+    const current = new Date(currentDate);
+    
+    // Set time to midnight to calculate full days
+    start.setHours(0, 0, 0, 0);
+    current.setHours(0, 0, 0, 0);
+    
+    // Calculate difference in milliseconds
+    const diffTime = current.getTime() - start.getTime();
+    
+    // Convert to days (including partial days)
+    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    
+    // Return the actual days served (can be 0 on first day, 1 on second day, etc.)
+    return Math.max(0, Math.round(diffDays * 100) / 100);
+  }
+
+  /**
+   * Calculate months served based on join date (deprecated - kept for backward compatibility)
+   * @deprecated Use calculateDaysServed for daily accrual instead
+   */
+  private static calculateMonthsServed(startDate: Date, currentDate: Date): number {
+    const daysServed = this.calculateDaysServed(startDate, currentDate);
+    // Convert days to months for backward compatibility
+    return daysServed / 30.44; // Average days per month
   }
 }
