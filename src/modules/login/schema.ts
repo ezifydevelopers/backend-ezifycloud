@@ -63,7 +63,24 @@ export const registerSchema = Joi.object({
     .optional()
     .messages({
       'string.guid': 'Manager ID must be a valid UUID'
-    })
+    }),
+  employeeType: Joi.string()
+    .valid('onshore', 'offshore')
+    .optional()
+    .allow(null)
+    .messages({
+      'any.only': 'Employee type must be onshore or offshore'
+    }),
+  region: Joi.string()
+    .max(100)
+    .optional()
+    .allow(null, '')
+    .messages({
+      'string.max': 'Region name cannot exceed 100 characters'
+    }),
+  timezone: Joi.string()
+    .optional()
+    .allow(null, '')
 });
 
 // Forgot password schema

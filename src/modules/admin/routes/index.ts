@@ -242,6 +242,15 @@ router.get('/policies',
   LeavePolicyController.getLeavePolicies
 );
 
+// Specific routes must come before dynamic :id route
+router.get('/policies/stats', 
+  LeavePolicyController.getLeavePolicyStats
+);
+
+router.get('/policies/types', 
+  LeavePolicyController.getLeavePolicyTypes
+);
+
 router.get('/policies/:id', 
   validateParams(adminSchemas.idParam),
   LeavePolicyController.getLeavePolicyById
@@ -267,14 +276,6 @@ router.patch('/policies/:id/toggle-status',
   validateParams(adminSchemas.idParam),
   validateRequest(adminSchemas.toggleLeavePolicyStatus),
   LeavePolicyController.toggleLeavePolicyStatus
-);
-
-router.get('/policies/stats', 
-  LeavePolicyController.getLeavePolicyStats
-);
-
-router.get('/policies/types', 
-  LeavePolicyController.getLeavePolicyTypes
 );
 
 router.patch('/policies/bulk-update', 

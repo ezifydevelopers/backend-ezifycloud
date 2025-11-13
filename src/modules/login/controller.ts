@@ -182,7 +182,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const { name, email, password, role, department, manager_id } = value;
+    const { name, email, password, role, department, manager_id, employeeType, region, timezone } = value;
 
     // Check if user already exists using Prisma
     const existingUser = await prisma.user.findUnique({
@@ -264,7 +264,10 @@ export const register = async (req: Request, res: Response, next: NextFunction):
         probationStatus: shouldStartProbation ? 'active' : null,
         probationStartDate,
         probationEndDate,
-        probationDuration: shouldStartProbation ? defaultProbationDuration : null
+        probationDuration: shouldStartProbation ? defaultProbationDuration : null,
+        employeeType: employeeType || null,
+        region: region || null,
+        timezone: timezone || null
       },
       select: {
         id: true,

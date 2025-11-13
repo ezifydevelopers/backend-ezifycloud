@@ -104,8 +104,13 @@ export class LeaveRequestService {
       if (!policyResult.isCompliant) {
         const criticalViolations = policyResult.violations.filter(v => v.type === 'CRITICAL');
         if (criticalViolations.length > 0) {
-          console.log('❌ LeaveRequestService: Critical policy violation:', criticalViolations[0]);
-          throw new Error(`Policy violation: ${criticalViolations[0].message}`);
+          console.log('❌ LeaveRequestService: Critical policy violation:', criticalViolations);
+          // Include all critical violations in the error message
+          const violationMessages = criticalViolations.map(v => v.message).join('; ');
+          const errorMessage = criticalViolations.length === 1
+            ? `Policy violation: ${violationMessages}`
+            : `Policy violations: ${violationMessages}`;
+          throw new Error(errorMessage);
         }
       }
 
@@ -146,13 +151,20 @@ export class LeaveRequestService {
           profilePicture: true,
           probationStatus: true,
           probationStartDate: true,
-          probationEndDate: true
+          probationEndDate: true,
+          employeeType: true
         }
       });
 
       // Auto-detect if leave is paid from leave policy
-      const leavePolicy = await prisma.leavePolicy.findUnique({
-        where: { leaveType: formData.leaveType },
+      // IMPORTANT: Strictly match employeeType - no fallback to null policies
+      // Onshore and Offshore policies are completely separate
+      const leavePolicy = await prisma.leavePolicy.findFirst({
+        where: {
+          leaveType: formData.leaveType,
+          employeeType: employee?.employeeType || undefined, // Strict match - only policies for this employeeType
+          isActive: true
+        },
         select: { isPaid: true }
       });
       // Default to true (paid) if policy not found

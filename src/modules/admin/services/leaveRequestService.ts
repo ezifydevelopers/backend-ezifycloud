@@ -76,7 +76,8 @@ export class LeaveRequestService {
               name: true,
               email: true,
               department: true,
-              profilePicture: true
+              profilePicture: true,
+              employeeType: true
             }
           },
           approver: {
@@ -102,7 +103,10 @@ export class LeaveRequestService {
           email: request.user.email,
           department: request.user.department || 'Unassigned',
           position: 'Employee', // Not in schema
-          avatar: request.user.profilePicture || undefined
+          avatar: request.user.profilePicture || undefined,
+          employeeType: (request.user.employeeType === 'onshore' || request.user.employeeType === 'offshore') 
+            ? (request.user.employeeType as 'onshore' | 'offshore')
+            : (request.user.employeeType === null ? null : undefined)
         },
         leaveType: request.leaveType,
         startDate: request.startDate,

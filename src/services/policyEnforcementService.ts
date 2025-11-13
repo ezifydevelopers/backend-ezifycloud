@@ -103,14 +103,31 @@ export class PolicyEnforcementService {
       result.isCompliant = result.violations.filter(v => v.type === 'CRITICAL').length === 0;
 
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error enforcing leave policies:', error);
+      
+      // Check if it's a Prisma validation error for leaveType
+      if (error?.name === 'PrismaClientValidationError' && 
+          error?.message?.includes('leaveType') && 
+          error?.message?.includes('Expected LeaveType')) {
+        return {
+          isCompliant: false,
+          violations: [{
+            type: 'CRITICAL',
+            code: 'INVALID_LEAVE_TYPE',
+            message: `Invalid leave type. The leave type must match an existing leave policy. Please check available leave types or contact your administrator.`
+          }],
+          warnings: [],
+          suggestions: []
+        };
+      }
+      
       return {
         isCompliant: false,
         violations: [{
           type: 'CRITICAL',
           code: 'ENFORCEMENT_ERROR',
-          message: 'Error enforcing policies'
+          message: error?.message || 'Error enforcing policies'
         }],
         warnings: [],
         suggestions: []

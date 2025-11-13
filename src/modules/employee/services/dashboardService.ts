@@ -266,12 +266,13 @@ export class EmployeeDashboardService {
     try {
       const currentYear = new Date().getFullYear();
       
-      // Get employee info including joinDate
+      // Get employee info including joinDate and employeeType
       const employee = await prisma.user.findUnique({
         where: { id: employeeId },
         select: {
           joinDate: true,
-          createdAt: true
+          createdAt: true,
+          employeeType: true
         }
       });
 
@@ -296,16 +297,77 @@ export class EmployeeDashboardService {
         }
       });
 
-      // Get active leave policies from database
-      const leavePolicies = await prisma.leavePolicy.findMany({
-        where: {
+      // Get active leave policies from database filtered by employeeType
+      // TEMPORARY: During migration, show null policies if no exact matches exist
+      // Handle case where migration hasn't been applied yet
+      let leavePolicies;
+      try {
+        const whereClause: any = {
           isActive: true
-        },
-        select: {
-          leaveType: true,
-          totalDaysPerYear: true
+        };
+        
+        // Check if any policies exist with the employee's employeeType
+        if (employee.employeeType) {
+          const countWithType = await prisma.leavePolicy.count({
+            where: { 
+              isActive: true,
+              employeeType: employee.employeeType 
+            }
+          }).catch(() => 0);
+          const countWithNull = await prisma.leavePolicy.count({
+            where: { 
+              isActive: true,
+              employeeType: null 
+            }
+          }).catch(() => 0);
+          
+          console.log('🔍 Employee getLeaveBalance: Policy counts:', {
+            withEmployeeType: countWithType,
+            withNullType: countWithNull,
+            employeeType: employee.employeeType
+          });
+          
+          if (countWithType > 0) {
+            // Show only policies with exact employeeType match
+            whereClause.employeeType = employee.employeeType;
+            console.log('🔍 Employee getLeaveBalance: Filtering by employeeType:', employee.employeeType, '(exact match only)');
+          } else if (countWithNull > 0) {
+            // TEMPORARY: If no policies with requested type exist, show null policies
+            // This allows employees to see policies during migration
+            whereClause.employeeType = null;
+            console.log('⚠️ Employee getLeaveBalance: No policies found with employeeType:', employee.employeeType);
+            console.log('⚠️ Employee getLeaveBalance: Showing null policies temporarily for migration');
+          } else {
+            // No policies at all
+            whereClause.employeeType = employee.employeeType;
+            console.log('🔍 Employee getLeaveBalance: No policies exist. Filtering by employeeType:', employee.employeeType);
+          }
+        } else {
+          // If employee has no employeeType set, show null policies temporarily
+          // This allows employees without employeeType to still see leave balance during migration
+          whereClause.employeeType = null;
+          console.log('⚠️ Employee getLeaveBalance: Employee has no employeeType, showing null policies temporarily');
         }
-      });
+        
+        leavePolicies = await prisma.leavePolicy.findMany({
+          where: whereClause as any,
+          select: {
+            leaveType: true,
+            totalDaysPerYear: true,
+            employeeType: true
+          } as any
+        });
+      } catch (error: any) {
+        // Fallback: if employeeType column doesn't exist yet, get all active policies
+        console.warn('⚠️ employeeType column not found, using all active policies. Please apply migration.');
+        leavePolicies = await prisma.leavePolicy.findMany({
+          where: { isActive: true },
+          select: {
+            leaveType: true,
+            totalDaysPerYear: true
+          }
+        });
+      }
 
       // Create a map of leave types to their tenure-based max days
       // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)

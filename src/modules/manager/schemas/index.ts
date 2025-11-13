@@ -306,7 +306,10 @@ export const leavePolicyFiltersSchema = Joi.object({
 
 // Manager Leave Request Schemas
 export const leaveRequestFormSchema = Joi.object({
-  leaveType: Joi.string().valid('annual', 'sick', 'casual', 'maternity', 'paternity', 'emergency').required(),
+  leaveType: Joi.string().min(1).required().messages({
+    'string.empty': 'Leave type is required',
+    'any.required': 'Leave type is required'
+  }),
   startDate: Joi.date().iso().required(),
   endDate: Joi.date().iso().min(Joi.ref('startDate')).required(),
   reason: Joi.string().min(10).max(500).required(),
@@ -345,7 +348,9 @@ export const leaveHistoryFiltersSchema = Joi.object({
 });
 
 export const updateLeaveRequestSchema = Joi.object({
-  leaveType: Joi.string().valid('annual', 'sick', 'casual', 'maternity', 'paternity', 'emergency').optional(),
+  leaveType: Joi.string().min(1).optional().messages({
+    'string.empty': 'Leave type cannot be empty'
+  }),
   startDate: Joi.date().iso().optional(),
   endDate: Joi.date().iso().optional(),
   reason: Joi.string().min(10).max(500).optional(),

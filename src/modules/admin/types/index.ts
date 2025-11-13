@@ -164,6 +164,7 @@ export interface LeaveRequest {
     department: string;
     position: string;
     avatar?: string;
+    employeeType?: 'onshore' | 'offshore' | null;
   };
   emergencyContact?: string;
   workHandover?: string;

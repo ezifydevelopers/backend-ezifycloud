@@ -86,36 +86,58 @@ export class LeaveRequestService {
           profilePicture: true,
           probationStatus: true,
           probationStartDate: true,
-          probationEndDate: true
+          probationEndDate: true,
+          employeeType: true
         }
       });
 
       // Auto-detect if leave is paid from leave policy
-      const leavePolicy = await prisma.leavePolicy.findUnique({
-        where: { leaveType: formData.leaveType },
+      // IMPORTANT: Strictly match employeeType - no fallback to null policies
+      // Onshore and Offshore policies are completely separate
+      const leavePolicy = await prisma.leavePolicy.findFirst({
+        where: {
+          leaveType: formData.leaveType,
+          employeeType: manager?.employeeType || undefined, // Strict match - only policies for this employeeType
+          isActive: true
+        },
         select: { isPaid: true }
       });
       // Default to true (paid) if policy not found
       let isPaid = leavePolicy?.isPaid ?? true;
 
-      // Check if manager is in probation period - if so, mark ALL leaves as unpaid
+      // Check if manager is in probation period
       const isInProbation = manager?.probationStatus === 'active' || manager?.probationStatus === 'extended';
+      
+      // Rule: Employees in probation cannot use leave balance at all
+      // They can only take unpaid leave
       if (isInProbation) {
+        // Check if they have any leave balance (even if locked)
+        const { BusinessRulesService } = await import('../../../services/businessRulesService');
+        const balance = await BusinessRulesService.calculateLeaveBalance(managerId);
+        const leaveBalance = balance[formData.leaveType];
+        
+        // If they have any total balance, they're trying to use it (which is not allowed during probation)
+        // During probation, remaining will be 0, but total might be > 0 (locked leaves)
+        if (leaveBalance && leaveBalance.total > 0) {
+          // Manager is trying to use leave balance during probation - reject
+          throw new Error('You cannot use leave balance during your probation period. Leaves earned during probation are locked until you complete your probation. You can only take unpaid leave during probation.');
+        }
+        
         // All leaves taken during probation are unpaid
         isPaid = false;
         console.log('💰 ManagerLeaveRequestService: Manager is in probation, marking as unpaid leave');
-      }
-
-      // Check if request exceeds leave balance - if so, mark as unpaid
-      // Note: Manager requests don't go through business rules validation, so we check balance directly
-      const { BusinessRulesService } = await import('../../../services/businessRulesService');
-      const balance = await BusinessRulesService.calculateLeaveBalance(managerId);
-      const leaveBalance = balance[formData.leaveType];
-      
-      if (leaveBalance && leaveBalance.remaining < totalDays) {
-        // Request exceeds available balance, mark as unpaid
-        isPaid = false;
-        console.log('💰 ManagerLeaveRequestService: Request exceeds balance, marking as unpaid leave');
+      } else {
+        // Check if request exceeds leave balance - if so, mark as unpaid
+        // Note: Manager requests don't go through business rules validation, so we check balance directly
+        const { BusinessRulesService } = await import('../../../services/businessRulesService');
+        const balance = await BusinessRulesService.calculateLeaveBalance(managerId);
+        const leaveBalance = balance[formData.leaveType];
+        
+        if (leaveBalance && leaveBalance.remaining < totalDays) {
+          // Request exceeds available balance, mark as unpaid
+          isPaid = false;
+          console.log('💰 ManagerLeaveRequestService: Request exceeds balance, marking as unpaid leave');
+        }
       }
 
       // Create leave request

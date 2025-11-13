@@ -112,7 +112,7 @@ export class EmployeeService {
             managerId: emp.managerId || undefined,
             managerName: emp.manager?.name,
             isActive: emp.isActive,
-            joinDate: emp.createdAt,
+            joinDate: emp.joinDate || emp.createdAt,
             lastLogin: undefined, // Not in schema
             leaveBalance,
             avatar: emp.profilePicture || undefined,
@@ -122,6 +122,9 @@ export class EmployeeService {
             probationEndDate: emp.probationEndDate,
             probationDuration: emp.probationDuration,
             probationCompletedAt: emp.probationCompletedAt,
+            employeeType: emp.employeeType as 'onshore' | 'offshore' | null,
+            region: emp.region || null,
+            timezone: emp.timezone || null,
             createdAt: emp.createdAt,
             updatedAt: emp.updatedAt
           };
@@ -941,7 +944,7 @@ export class EmployeeService {
       const currentYear = year ? parseInt(year) : new Date().getFullYear();
       console.log('🔍 EmployeeService: getEmployeeLeaveBalance called with:', { employeeId, year, currentYear });
       
-      // Get user information including joinDate
+      // Get user information including joinDate and employeeType
       const user = await prisma.user.findUnique({
         where: { id: employeeId },
         select: {
@@ -950,7 +953,8 @@ export class EmployeeService {
           email: true,
           department: true,
           joinDate: true,
-          createdAt: true
+          createdAt: true,
+          employeeType: true
         }
       });
 
@@ -976,16 +980,36 @@ export class EmployeeService {
         }
       });
 
-      // Get active leave policies from database
-      const leavePolicies = await prisma.leavePolicy.findMany({
-        where: {
-          isActive: true
-        },
-        select: {
-          leaveType: true,
-          totalDaysPerYear: true
-        }
-      });
+      // Get active leave policies from database filtered by employeeType
+      // Policies with employeeType null apply to both onshore and offshore
+      // Handle case where migration hasn't been applied yet
+      let leavePolicies;
+      try {
+        leavePolicies = await prisma.leavePolicy.findMany({
+          where: {
+            isActive: true,
+            OR: [
+              { employeeType: user.employeeType as any }, // Policy specific to employee type
+              { employeeType: null as any } // Policy applies to both types
+            ]
+          } as any,
+          select: {
+            leaveType: true,
+            totalDaysPerYear: true,
+            employeeType: true
+          } as any
+        });
+      } catch (error: any) {
+        // Fallback: if employeeType column doesn't exist yet, get all active policies
+        console.warn('⚠️ employeeType column not found, using all active policies. Please apply migration.');
+        leavePolicies = await prisma.leavePolicy.findMany({
+          where: { isActive: true },
+          select: {
+            leaveType: true,
+            totalDaysPerYear: true
+          }
+        });
+      }
 
       // Create a map of leave types to their tenure-based max days
       // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
@@ -1104,9 +1128,26 @@ export class EmployeeService {
     try {
       const currentYear = year || new Date().getFullYear();
       
-      // Validate leave type
-      const policy = await prisma.leavePolicy.findUnique({
-        where: { leaveType }
+      // Get employee info to filter by employeeType
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId },
+        select: { employeeType: true }
+      });
+
+      // Validate leave type - find policy matching employeeType or generic (null)
+      const policy = await prisma.leavePolicy.findFirst({
+        where: {
+          leaveType,
+          OR: [
+            { employeeType: employee?.employeeType },
+            { employeeType: null }
+          ],
+          isActive: true
+        },
+        orderBy: [
+          // Prefer specific policy over generic (null) policy
+          { employeeType: 'asc' }
+        ]
       });
 
       if (!policy) {
@@ -1888,12 +1929,13 @@ export class EmployeeService {
     try {
       const year = asOfDate.getFullYear();
       
-      // Get employee info
+      // Get employee info including employeeType
       const employee = await prisma.user.findUnique({
         where: { id: employeeId },
         select: {
           joinDate: true,
-          createdAt: true
+          createdAt: true,
+          employeeType: true
         }
       });
 
@@ -1905,10 +1947,22 @@ export class EmployeeService {
       const joinDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
       const daysServed = this.calculateDaysServed(joinDate, asOfDate);
 
-      // Get leave policy for this leave type
-      const leavePolicy = await prisma.leavePolicy.findUnique({
-        where: { leaveType },
-        select: { totalDaysPerYear: true }
+      // Get leave policy for this leave type and employeeType
+      // Policies with employeeType null apply to both onshore and offshore
+      const leavePolicy = await prisma.leavePolicy.findFirst({
+        where: {
+          leaveType,
+          OR: [
+            { employeeType: employee.employeeType }, // Policy specific to employee type
+            { employeeType: null } // Policy applies to both types
+          ],
+          isActive: true
+        },
+        select: { totalDaysPerYear: true },
+        orderBy: [
+          // Prefer specific policy over generic (null) policy
+          { employeeType: 'asc' } // null comes last, so specific policies come first
+        ]
       });
 
       if (!leavePolicy) {

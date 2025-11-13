@@ -10,7 +10,10 @@ export const employeeDashboardStatsSchema = Joi.object({
 
 // Leave Request Schemas
 export const leaveRequestFormSchema = Joi.object({
-  leaveType: Joi.string().valid('annual', 'sick', 'casual', 'maternity', 'paternity', 'emergency').required(),
+  leaveType: Joi.string().min(1).required().messages({
+    'string.empty': 'Leave type is required',
+    'any.required': 'Leave type is required'
+  }),
   startDate: Joi.date().iso().required(),
   endDate: Joi.date().iso().min(Joi.ref('startDate')).required(),
   reason: Joi.string().min(10).max(500).required(),

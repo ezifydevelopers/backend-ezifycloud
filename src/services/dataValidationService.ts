@@ -176,10 +176,10 @@ export class DataValidationService {
     leaveRequest: {
       create: Joi.object({
         leaveType: Joi.string()
-          .valid('annual', 'sick', 'casual', 'emergency', 'maternity', 'paternity')
+          .min(1)
           .required()
           .messages({
-            'any.only': 'Leave type must be one of: annual, sick, casual, emergency, maternity, paternity',
+            'string.empty': 'Leave type is required',
             'any.required': 'Leave type is required'
           }),
         startDate: Joi.date()
@@ -672,10 +672,14 @@ export class DataValidationService {
   /**
    * Validate leave policy uniqueness
    */
-  static async validateLeavePolicyUniqueness(leaveType: string, excludePolicyId?: string): Promise<ValidationResult> {
+  static async validateLeavePolicyUniqueness(leaveType: string, employeeType: string | null, excludePolicyId?: string): Promise<ValidationResult> {
     try {
+      // Check if a policy with the same leaveType and employeeType already exists
       const existingPolicy = await prisma.leavePolicy.findFirst({
-        where: { leaveType }
+        where: {
+          leaveType,
+          employeeType: employeeType || null
+        }
       });
 
       if (existingPolicy && existingPolicy.id !== excludePolicyId) {

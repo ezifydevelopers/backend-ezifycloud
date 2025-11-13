@@ -53,37 +53,37 @@ enum AttendanceStatus {
 }
 
 model User {
-  id               String    @id @default(uuid())
-  name             String
-  email            String    @unique
-  passwordHash     String    @map("password_hash")
-  role             UserRole
-  department       String?
-  managerId        String?   @map("manager_id")
-  profilePicture   String?   @map("profile_picture")
-  phone            String?
-  bio              String?
-  address          String?
-  emergencyContact String?
-  emergencyPhone   String?
-  isActive         Boolean   @default(true) @map("is_active")
-  approvalStatus   String    @default("pending") @map("approval_status") // pending, approved, rejected
-  approvedBy       String?   @map("approved_by") // User ID who approved/rejected
-  approvedAt       DateTime? @map("approved_at")
-  rejectionReason  String?   @map("rejection_reason")
-  joinDate         DateTime? @map("join_date") // Employee joining date for leave accrual
-  probationStatus  String?   @map("probation_status") // active, completed, extended, terminated
-  probationStartDate DateTime? @map("probation_start_date")
-  probationEndDate   DateTime? @map("probation_end_date")
-  probationDuration   Int?     @map("probation_duration") // Duration in days (default: 90)
+  id                   String    @id @default(uuid())
+  name                 String
+  email                String    @unique
+  passwordHash         String    @map("password_hash")
+  role                 UserRole
+  department           String?
+  managerId            String?   @map("manager_id")
+  profilePicture       String?   @map("profile_picture")
+  phone                String?
+  bio                  String?
+  address              String?
+  emergencyContact     String?
+  emergencyPhone       String?
+  isActive             Boolean   @default(true) @map("is_active")
+  approvalStatus       String    @default("pending") @map("approval_status") // pending, approved, rejected
+  approvedBy           String?   @map("approved_by") // User ID who approved/rejected
+  approvedAt           DateTime? @map("approved_at")
+  rejectionReason      String?   @map("rejection_reason")
+  joinDate             DateTime? @map("join_date") // Employee joining date for leave accrual
+  probationStatus      String?   @map("probation_status") // active, completed, extended, terminated
+  probationStartDate   DateTime? @map("probation_start_date")
+  probationEndDate     DateTime? @map("probation_end_date")
+  probationDuration    Int?      @map("probation_duration") // Duration in days (default: 90)
   probationCompletedAt DateTime? @map("probation_completed_at")
-  employeeType      String?   @map("employee_type") // onshore, offshore
-  region            String?   @map("region") // Region/country for region-specific requirements
-  timezone          String?   @map("timezone") // Timezone for the employee
-  lastLogin        DateTime? @map("last_login")
-  deletedAt        DateTime? @map("deleted_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  employeeType         String?   @map("employee_type") // onshore, offshore
+  region               String?   @map("region") // Region/country for region-specific requirements
+  timezone             String?   @map("timezone") // Timezone for the employee
+  lastLogin            DateTime? @map("last_login")
+  deletedAt            DateTime? @map("deleted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   // Relations
   manager                   User?              @relation("UserManager", fields: [managerId], references: [id])
@@ -123,25 +123,25 @@ model User {
 }
 
 model LeaveRequest {
-  id             String         @id @default(uuid())
-  userId         String         @map("user_id")
-  leaveType      LeaveType      @map("leave_type")
-  startDate      DateTime       @map("start_date") @db.Date
-  endDate        DateTime       @map("end_date") @db.Date
-  totalDays      Decimal        @map("total_days") @db.Decimal(3, 1)
-  reason         String
-  status         LeaveStatus    @default(pending)
-  isPaid         Boolean        @default(true) @map("is_paid")
-  submittedAt    DateTime       @default(now()) @map("submitted_at")
-  approvedBy     String?        @map("approved_by")
-  approvedAt     DateTime?      @map("approved_at")
-  rejectedReason String?        @map("rejected_reason")
-  isHalfDay      Boolean        @default(false) @map("is_half_day")
-  halfDayPeriod  HalfDayPeriod? @map("half_day_period")
-  shortLeaveHours Int?          @map("short_leave_hours") // 1, 2, or 3 hours for short leave
-  comments       String?
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
+  id              String         @id @default(uuid())
+  userId          String         @map("user_id")
+  leaveType       String         @map("leave_type")
+  startDate       DateTime       @map("start_date") @db.Date
+  endDate         DateTime       @map("end_date") @db.Date
+  totalDays       Decimal        @map("total_days") @db.Decimal(3, 1)
+  reason          String
+  status          LeaveStatus    @default(pending)
+  isPaid          Boolean        @default(true) @map("is_paid")
+  submittedAt     DateTime       @default(now()) @map("submitted_at")
+  approvedBy      String?        @map("approved_by")
+  approvedAt      DateTime?      @map("approved_at")
+  rejectedReason  String?        @map("rejected_reason")
+  isHalfDay       Boolean        @default(false) @map("is_half_day")
+  halfDayPeriod   HalfDayPeriod? @map("half_day_period")
+  shortLeaveHours Int?           @map("short_leave_hours") // 1, 2, or 3 hours for short leave
+  comments        String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   // Relations
   user             User              @relation(fields: [userId], references: [id])
@@ -194,9 +194,9 @@ model LeaveAccrual {
   newTotal          Int      @map("new_total")
   previousRemaining Int      @map("previous_remaining")
   newRemaining      Int      @map("new_remaining")
-  year              Int      // Year for which leave was accrued
-  month             Int      // Month (1-12) for which leave was accrued
-  notes             String?  // Optional notes about the accrual
+  year              Int // Year for which leave was accrued
+  month             Int // Month (1-12) for which leave was accrued
+  notes             String? // Optional notes about the accrual
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -210,19 +210,19 @@ model LeaveAccrual {
 }
 
 model WorkingDaysCalendar {
-  id                String   @id @default(uuid())
-  year              Int
-  month             Int      // 1-12
-  totalDays         Int      @map("total_days")
-  workingDays       Int      @map("working_days")
-  weekends          Int
-  holidays          Int
-  workingDaysList   Json     @map("working_days_list") // Array of ISO date strings
-  weekendDaysList   Json     @map("weekend_days_list") // Array of ISO date strings
-  holidayDaysList   Json     @map("holiday_days_list") // Array of ISO date strings
-  workingDaysPerWeek Json    @map("working_days_per_week") // Array of day numbers [1,2,3,4,5] for Mon-Fri
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  year               Int
+  month              Int // 1-12
+  totalDays          Int      @map("total_days")
+  workingDays        Int      @map("working_days")
+  weekends           Int
+  holidays           Int
+  workingDaysList    Json     @map("working_days_list") // Array of ISO date strings
+  weekendDaysList    Json     @map("weekend_days_list") // Array of ISO date strings
+  holidayDaysList    Json     @map("holiday_days_list") // Array of ISO date strings
+  workingDaysPerWeek Json     @map("working_days_per_week") // Array of day numbers [1,2,3,4,5] for Mon-Fri
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@unique([year, month], name: "year_month")
   @@index([year, month])
@@ -231,7 +231,7 @@ model WorkingDaysCalendar {
 
 model LeavePolicy {
   id                  String   @id @default(uuid())
-  leaveType           String   @unique @map("leave_type")
+  leaveType           String   @map("leave_type")
   totalDaysPerYear    Int      @map("total_days_per_year")
   isPaid              Boolean  @default(true) @map("is_paid")
   canCarryForward     Boolean  @default(false) @map("can_carry_forward")
@@ -240,6 +240,7 @@ model LeavePolicy {
   allowHalfDay        Boolean  @default(true) @map("allow_half_day")
   description         String?
   isActive            Boolean  @default(true) @map("is_active")
+  employeeType        String?  @map("employee_type") // 'onshore', 'offshore', or null (for both)
   createdBy           String   @map("created_by")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
@@ -247,6 +248,7 @@ model LeavePolicy {
   // Relations
   creator User @relation("CreatedPolicies", fields: [createdBy], references: [id])
 
+  @@unique([leaveType, employeeType])
   @@map("leave_policies")
 }
 
@@ -254,7 +256,7 @@ model AuditLog {
   id            String   @id @default(uuid())
   userId        String   @map("user_id")
   userName      String   @map("user_name")
-  action        String   // create, update, delete, view, export, etc.
+  action        String // create, update, delete, view, export, etc.
   targetId      String?  @map("target_id")
   targetType    String?  @map("target_type") // workspace, board, item, column, cell, file, etc.
   resourceId    String?  @map("resource_id") // workspaceId, boardId for context
@@ -262,7 +264,7 @@ model AuditLog {
   fieldChanges  Json?    @map("field_changes") // Array of { field, oldValue, newValue }
   oldData       Json?    @map("old_data") // Snapshot of data before change
   newData       Json?    @map("new_data") // Snapshot of data after change
-  details       Json?    // Additional metadata
+  details       Json? // Additional metadata
   ipAddress     String?  @map("ip_address") @db.Inet
   userAgent     String?  @map("user_agent")
   requestMethod String?  @map("request_method") // GET, POST, PUT, DELETE, etc.
@@ -891,7 +893,7 @@ model Dashboard {
   isPublic    Boolean  @default(false) @map("is_public")
   sharedWith  Json?    @default("[]") @map("shared_with") // Array of user IDs or role names
   createdBy   String   @map("created_by")
-  createdAt    DateTime  @default(now()) @map("created_at")
+  createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
@@ -1022,9 +1024,9 @@ model Notification {
 model SystemConfig {
   id          String   @id @default(uuid())
   key         String   @unique
-  value       String   // JSON string for complex values
+  value       String // JSON string for complex values
   description String?
-  category    String?  // 'probation', 'leave', 'attendance', etc.
+  category    String? // 'probation', 'leave', 'attendance', etc.
   updatedBy   String?  @map("updated_by")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

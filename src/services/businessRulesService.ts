@@ -60,11 +60,27 @@ export class BusinessRulesService {
         suggestions: []
       };
 
-      // Get user information
+      // Get user information including probation status
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        include: {
-          manager: true
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          department: true,
+          managerId: true,
+          manager: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          probationStatus: true,
+          probationStartDate: true,
+          probationEndDate: true,
+          probationCompletedAt: true
         }
       });
 
@@ -76,6 +92,13 @@ export class BusinessRulesService {
           message: 'User not found'
         };
       }
+
+      // Check if employee is in probation period
+      const isInProbation = user.probationStatus === 'active' || user.probationStatus === 'extended';
+      
+      // Rule: Employees in probation cannot use leave balance at all
+      // They can only take unpaid leave
+      // This check is done in validateLeaveBalance, but we add it here for early rejection with better messaging
 
       // Get active leave policies
       const policies = await prisma.leavePolicy.findMany({
@@ -352,12 +375,17 @@ export class BusinessRulesService {
     year: number = new Date().getFullYear()
   ): Promise<{ [leaveType: string]: { total: number; used: number; remaining: number; pending: number } }> {
     try {
-      // Get employee info including joinDate
+      // Get employee info including joinDate, employeeType, and probation info
       const employee = await prisma.user.findUnique({
         where: { id: userId },
         select: {
           joinDate: true,
-          createdAt: true
+          createdAt: true,
+          employeeType: true,
+          probationStatus: true,
+          probationStartDate: true,
+          probationEndDate: true,
+          probationCompletedAt: true
         }
       });
 
@@ -371,17 +399,99 @@ export class BusinessRulesService {
       const currentDate = new Date();
       const daysServed = this.calculateDaysServed(startDate, currentDate);
 
-      // Get active leave policies
-      const policies = await prisma.leavePolicy.findMany({
-        where: { isActive: true }
-      });
+      // Calculate probation period
+      const isInProbation = employee.probationStatus === 'active' || employee.probationStatus === 'extended';
+      const probationCompleted = employee.probationStatus === 'completed' && employee.probationCompletedAt;
+      
+      // Calculate days served during probation vs after probation
+      let daysServedDuringProbation = 0;
+      let daysServedAfterProbation = 0;
+      
+      if (employee.probationStartDate && employee.probationEndDate) {
+        const probationStart = new Date(employee.probationStartDate);
+        const probationEnd = new Date(employee.probationEndDate);
+        const probationCompletedDate = probationCompleted && employee.probationCompletedAt 
+          ? new Date(employee.probationCompletedAt) 
+          : null;
+        
+        // Days served during probation (from start to end or completion, whichever is earlier)
+        const probationEndDate = probationCompletedDate || probationEnd;
+        const probationDays = this.calculateDaysServed(
+          probationStart < startDate ? startDate : probationStart,
+          probationEndDate < currentDate ? probationEndDate : currentDate
+        );
+        daysServedDuringProbation = Math.max(0, probationDays);
+        
+        // Days served after probation (only if probation is completed)
+        if (probationCompleted && probationCompletedDate) {
+          daysServedAfterProbation = this.calculateDaysServed(
+            probationCompletedDate,
+            currentDate
+          );
+        }
+      } else {
+        // If no probation dates, all days are considered "after probation" (for employees without probation)
+        daysServedAfterProbation = daysServed;
+      }
 
-      const policyMap = new Map<string, number>();
+      // Get active leave policies filtered by employeeType
+      // IMPORTANT: Onshore and Offshore policies are completely separate
+      // Only policies matching the employee's employeeType are used - no fallback to null policies
+      // Handle case where migration hasn't been applied yet
+      let policies: any[] = [];
+      try {
+        if (employee.employeeType) {
+          // Strictly filter by exact employeeType match - no fallback to null
+          policies = await prisma.leavePolicy.findMany({
+            where: {
+              isActive: true,
+              employeeType: employee.employeeType as any
+            } as any
+          });
+        } else {
+          // If employee has no employeeType, return empty (they need to be assigned an employeeType)
+          policies = [];
+        }
+      } catch (error: any) {
+        // Fallback: if employeeType column doesn't exist yet, get all active policies
+        console.warn('⚠️ employeeType column not found, using all active policies. Please apply migration.');
+        policies = await prisma.leavePolicy.findMany({
+          where: { isActive: true }
+        });
+      }
+
+      const policyMap = new Map<string, { total: number; probationEarned: number; available: number }>();
       policies.forEach(policy => {
         // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
         const dailyAccrual = policy.totalDaysPerYear / 365; // Daily accrual rate
-        const tenureBasedTotal = Math.round(dailyAccrual * daysServed * 100) / 100; // Round to 2 decimal places
-        policyMap.set(policy.leaveType, tenureBasedTotal);
+        
+        // Total leaves earned (during probation + after probation)
+        const totalEarned = Math.round(dailyAccrual * daysServed * 100) / 100;
+        
+        // Leaves earned during probation (locked until probation completion)
+        const probationEarned = Math.round(dailyAccrual * daysServedDuringProbation * 100) / 100;
+        
+        // Available leaves (only after probation completion)
+        // If in probation, available = 0 (all leaves are locked)
+        // If probation completed, available = total (probation-earned + post-probation leaves all become available)
+        // If no probation, available = total
+        let available = 0;
+        if (isInProbation) {
+          // In probation: no leaves available (all locked, including probation-earned leaves)
+          available = 0;
+        } else if (probationCompleted) {
+          // Probation completed: all leaves become available (probation-earned + post-probation)
+          available = totalEarned;
+        } else {
+          // No probation: all leaves are available
+          available = totalEarned;
+        }
+        
+        policyMap.set(policy.leaveType, {
+          total: totalEarned,
+          probationEarned,
+          available: Math.max(0, available)
+        });
       });
 
       // Get leave requests for the year
@@ -416,18 +526,25 @@ export class BusinessRulesService {
       });
 
       // Build result
-      const result: { [leaveType: string]: { total: number; used: number; remaining: number; pending: number } } = {};
+      const result: { [leaveType: string]: { total: number; used: number; remaining: number; pending: number; probationEarned?: number; available?: number } } = {};
 
-      policyMap.forEach((totalDays, leaveType) => {
+      policyMap.forEach((balanceInfo, leaveType) => {
         const used = usedDays[leaveType] || 0;
         const pending = pendingDays[leaveType] || 0;
-        const remaining = Math.max(0, totalDays - used - pending);
+        
+        // Remaining = available balance minus used and pending
+        // If in probation, remaining = 0 (all leaves are locked)
+        const remaining = isInProbation 
+          ? 0 
+          : Math.max(0, balanceInfo.available - used - pending);
 
         result[leaveType] = {
-          total: totalDays,
+          total: balanceInfo.total,
           used,
           remaining,
-          pending
+          pending,
+          probationEarned: balanceInfo.probationEarned,
+          available: balanceInfo.available
         };
       });
 
@@ -472,6 +589,7 @@ export class BusinessRulesService {
   /**
    * Validate leave balance - Enhanced to allow negative balance with salary deduction
    * Now with strict limit enforcement option
+   * Also checks probation status - employees in probation cannot use leave balance
    */
   private static async validateLeaveBalance(
     userId: string,
@@ -479,6 +597,27 @@ export class BusinessRulesService {
     requestedDays: number,
     enforceStrictLimit: boolean = false
   ): Promise<BusinessRuleResult> {
+    // Get employee probation status
+    const employee = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        probationStatus: true,
+        probationStartDate: true,
+        probationEndDate: true,
+        probationCompletedAt: true
+      }
+    });
+
+    const isInProbation = employee?.probationStatus === 'active' || employee?.probationStatus === 'extended';
+    
+    // If employee is in probation, they cannot use leave balance
+    if (isInProbation) {
+      return {
+        isValid: false,
+        message: `You cannot use leave balance during your probation period. Leaves earned during probation are locked until you complete your probation. You can only take unpaid leave during probation.`
+      };
+    }
+
     const balance = await this.calculateLeaveBalance(userId);
     const leaveBalance = balance[leaveType];
 
