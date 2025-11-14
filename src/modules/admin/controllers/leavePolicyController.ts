@@ -9,11 +9,20 @@ export class LeavePolicyController {
   static async getLeavePolicies(req: Request, res: Response): Promise<void> {
     try {
       const adminId = (req as any).user?.id;
-      const { status = 'active', limit = 50, page = 1, employeeType } = req.query;
+      const { status = 'active', limit = 50, page = 1, employeeType: queryEmployeeType } = req.query;
+      
+      // Normalize employeeType: convert to lowercase and trim for consistency
+      const rawEmployeeType = queryEmployeeType as string | undefined;
+      const normalizedEmployeeType = rawEmployeeType && 
+        rawEmployeeType !== 'null' && 
+        rawEmployeeType !== '' 
+        ? String(rawEmployeeType).toLowerCase().trim()
+        : null;
       
       console.log('🔍 getLeavePolicies: Request params:', {
         adminId,
-        employeeType,
+        queryEmployeeType,
+        normalizedEmployeeType,
         status,
         page,
         limit
@@ -32,21 +41,28 @@ export class LeavePolicyController {
         
         // Add employeeType filter if provided
         // IMPORTANT: Onshore and Offshore policies are completely separate
-        // Show policies with exact employeeType match, OR null policies if no exact match exists (for migration)
-        if (employeeType && (employeeType === 'onshore' || employeeType === 'offshore')) {
-          // Check if any policies exist with the exact employeeType
-          const countWithType = await prisma.leavePolicy.count({
-            where: { employeeType: employeeType }
-          }).catch(() => 0);
+        // Show policies with exact employeeType match (case-insensitive), OR null policies if no exact match exists (for migration)
+        if (normalizedEmployeeType && (normalizedEmployeeType === 'onshore' || normalizedEmployeeType === 'offshore')) {
+          // Check if any policies exist with the exact employeeType (case-insensitive)
+          // Use raw query for case-insensitive comparison
+          const countWithTypeResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
+            `SELECT COUNT(*)::int as count FROM leave_policies WHERE LOWER(employee_type) = LOWER($1)`,
+            normalizedEmployeeType
+          ).catch(() => [{ count: BigInt(0) }]);
+          const countWithType = Number(countWithTypeResult[0]?.count || 0);
+          
+          console.log('🔍 getLeavePolicies: Checking for policies with employeeType:', normalizedEmployeeType);
+          console.log('🔍 getLeavePolicies: Found', countWithType, 'policies with exact match');
           
           if (countWithType > 0) {
-            // Show only policies with exact employeeType match
-            whereClause.employeeType = employeeType;
-            console.log('🔍 getLeavePolicies: Filtering by employeeType:', employeeType, '(exact match only)');
+            // Show only policies with exact employeeType match (use case-insensitive comparison)
+            // Use raw query for case-insensitive filtering
+            whereClause.employeeType = normalizedEmployeeType;
+            console.log('🔍 getLeavePolicies: Filtering by employeeType:', normalizedEmployeeType, '(exact match only)');
           } else {
             // No policies with exact match - show null policies so they can be edited and assigned
             whereClause.employeeType = null;
-            console.log('🔍 getLeavePolicies: No policies found with employeeType:', employeeType);
+            console.log('🔍 getLeavePolicies: No policies found with employeeType:', normalizedEmployeeType);
             console.log('🔍 getLeavePolicies: Showing null policies for migration - they can be edited to assign employeeType');
           }
         } else {
@@ -56,49 +72,108 @@ export class LeavePolicyController {
         console.log('🔍 getLeavePolicies: Where clause:', JSON.stringify(whereClause, null, 2));
         console.log('🔍 getLeavePolicies: Admin ID (for reference):', adminId);
         
-        policies = await prisma.leavePolicy.findMany({
-          where: whereClause,
-          skip,
-          take: parseInt(limit as string),
-          orderBy: {
-            createdAt: 'desc'
-          },
-          include: {
-            creator: {
-              select: {
-                id: true,
-                name: true,
-                email: true
+        // Use case-insensitive query if filtering by employeeType
+        if (normalizedEmployeeType && (normalizedEmployeeType === 'onshore' || normalizedEmployeeType === 'offshore') && whereClause.employeeType) {
+          // Use raw query for case-insensitive filtering
+          // Explicitly map all fields to match Prisma format
+          policies = await prisma.$queryRawUnsafe<any[]>(`
+            SELECT 
+              lp.id,
+              lp.leave_type as "leaveType",
+              lp.total_days_per_year as "totalDaysPerYear",
+              lp.is_paid as "isPaid",
+              lp.can_carry_forward as "canCarryForward",
+              lp.max_carry_forward_days as "maxCarryForwardDays",
+              lp.requires_approval as "requiresApproval",
+              lp.allow_half_day as "allowHalfDay",
+              lp.description,
+              lp.is_active as "isActive",
+              lp.employee_type as "employeeType",
+              lp.created_by as "createdBy",
+              lp.created_at as "createdAt",
+              lp.updated_at as "updatedAt",
+              json_build_object(
+                'id', u.id,
+                'name', u.name,
+                'email', u.email
+              ) as creator
+            FROM leave_policies lp
+            LEFT JOIN users u ON lp.created_by = u.id
+            WHERE LOWER(lp.employee_type) = LOWER($1)
+            ORDER BY lp.created_at DESC
+            LIMIT $2
+            OFFSET $3
+          `, normalizedEmployeeType, parseInt(limit as string), skip);
+          
+          // Transform the result to match Prisma format
+          policies = policies.map((p: any) => ({
+            ...p,
+            creator: typeof p.creator === 'string' ? JSON.parse(p.creator) : p.creator
+          }));
+          
+          console.log('🔍 getLeavePolicies: Raw SQL query returned', policies.length, 'policies');
+          if (policies.length > 0) {
+            console.log('🔍 getLeavePolicies: Sample policy from raw query:', {
+              id: policies[0].id,
+              leaveType: policies[0].leaveType,
+              employeeType: policies[0].employeeType
+            });
+          }
+        } else {
+          policies = await prisma.leavePolicy.findMany({
+            where: whereClause,
+            skip,
+            take: parseInt(limit as string),
+            orderBy: {
+              createdAt: 'desc'
+            },
+            include: {
+              creator: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
               }
             }
-          }
-        });
+          });
+        }
 
         const countWhereClause: any = {};
         
         // Add employeeType filter if provided (match the same logic as main query)
-        if (employeeType && (employeeType === 'onshore' || employeeType === 'offshore')) {
-          // Check if any policies exist with the exact employeeType
-          const countWithType = await prisma.leavePolicy.count({
-            where: { employeeType: employeeType }
-          }).catch(() => 0);
+        if (normalizedEmployeeType && (normalizedEmployeeType === 'onshore' || normalizedEmployeeType === 'offshore')) {
+          // Check if any policies exist with the exact employeeType (case-insensitive)
+          const countWithTypeResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
+            `SELECT COUNT(*)::int as count FROM leave_policies WHERE LOWER(employee_type) = LOWER($1)`,
+            normalizedEmployeeType
+          ).catch(() => [{ count: BigInt(0) }]);
+          const countWithType = Number(countWithTypeResult[0]?.count || 0);
           
           if (countWithType > 0) {
-            countWhereClause.employeeType = employeeType;
+            // Use case-insensitive comparison for count as well
+            // We'll use raw query for count to match the filtering logic
+            const countResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
+              `SELECT COUNT(*)::int as count FROM leave_policies WHERE LOWER(employee_type) = LOWER($1)`,
+              normalizedEmployeeType
+            );
+            total = Number(countResult[0]?.count || 0);
           } else {
             // No policies with exact match - count null policies
-            countWhereClause.employeeType = null;
+            total = await prisma.leavePolicy.count({
+              where: { employeeType: null }
+            });
           }
+        } else {
+          total = await prisma.leavePolicy.count({
+            where: countWhereClause
+          });
         }
-        
-        total = await prisma.leavePolicy.count({
-          where: countWhereClause
-        });
         
         console.log('🔍 getLeavePolicies: Query results:', {
           filteredCount: policies.length,
           totalForAdmin: total,
-          employeeType: employeeType || 'all',
+          employeeType: normalizedEmployeeType || 'all',
           adminId,
           total,
           policiesForAdmin: policies.map(p => ({
@@ -151,19 +226,22 @@ export class LeavePolicyController {
           let paramIndex = 1;
           
           // Add employeeType filter if column exists and employeeType is provided
-          // Show policies with exact employeeType match, OR null policies if no exact match exists (for migration)
-          if (hasEmployeeTypeColumn && employeeType && (employeeType === 'onshore' || employeeType === 'offshore')) {
-            // Check if any policies exist with the exact employeeType
+          // Show policies with exact employeeType match (case-insensitive), OR null policies if no exact match exists (for migration)
+          if (hasEmployeeTypeColumn && normalizedEmployeeType && (normalizedEmployeeType === 'onshore' || normalizedEmployeeType === 'offshore')) {
+            // Check if any policies exist with the exact employeeType (case-insensitive)
             const countWithTypeResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
-              `SELECT COUNT(*)::int as count FROM leave_policies WHERE employee_type = $1`,
-              employeeType
+              `SELECT COUNT(*)::int as count FROM leave_policies WHERE LOWER(employee_type) = LOWER($1)`,
+              normalizedEmployeeType
             ).catch(() => [{ count: BigInt(0) }]);
             const countWithType = Number(countWithTypeResult[0]?.count || 0);
             
+            console.log('🔍 Raw SQL: Checking for policies with employeeType:', normalizedEmployeeType);
+            console.log('🔍 Raw SQL: Found', countWithType, 'policies with exact match');
+            
             if (countWithType > 0) {
-              // Show only policies with exact employeeType match
-              whereClause += ` AND lp.employee_type = $${paramIndex}`;
-              queryParams.push(employeeType);
+              // Show only policies with exact employeeType match (case-insensitive)
+              whereClause += ` AND LOWER(lp.employee_type) = LOWER($${paramIndex})`;
+              queryParams.push(normalizedEmployeeType);
               paramIndex++;
             } else {
               // No policies with exact match - show null policies for migration
@@ -205,17 +283,17 @@ export class LeavePolicyController {
           // Match the same logic as the main query
           let countWhereClause = '1=1'; // Always true, count all policies
           const countParams: any[] = [];
-          if (hasEmployeeTypeColumn && employeeType && (employeeType === 'onshore' || employeeType === 'offshore')) {
-            // Check if any policies exist with the exact employeeType
+          if (hasEmployeeTypeColumn && normalizedEmployeeType && (normalizedEmployeeType === 'onshore' || normalizedEmployeeType === 'offshore')) {
+            // Check if any policies exist with the exact employeeType (case-insensitive)
             const countWithTypeResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
-              `SELECT COUNT(*)::int as count FROM leave_policies WHERE employee_type = $1`,
-              employeeType
+              `SELECT COUNT(*)::int as count FROM leave_policies WHERE LOWER(employee_type) = LOWER($1)`,
+              normalizedEmployeeType
             ).catch(() => [{ count: BigInt(0) }]);
             const countWithType = Number(countWithTypeResult[0]?.count || 0);
             
             if (countWithType > 0) {
-              countWhereClause += ' AND employee_type = $1';
-              countParams.push(employeeType);
+              countWhereClause += ' AND LOWER(employee_type) = LOWER($1)';
+              countParams.push(normalizedEmployeeType);
             } else {
               // No policies with exact match - count null policies
               countWhereClause += ' AND employee_type IS NULL';
@@ -378,16 +456,20 @@ export class LeavePolicyController {
       
       // IMPORTANT: Use employeeType from query params (tab context) if provided, otherwise from body
       // This ensures policies created from onshore/offshore tabs are automatically assigned to that tab
-      // Normalize employeeType: convert undefined, empty string, or 'null' to null
-      const normalizedEmployeeType = (queryEmployeeType || bodyEmployeeType) && 
-        (queryEmployeeType || bodyEmployeeType) !== 'null' && 
-        (queryEmployeeType || bodyEmployeeType) !== '' 
-        ? (queryEmployeeType || bodyEmployeeType) 
+      // Normalize employeeType: convert undefined, empty string, or 'null' to null, and lowercase for consistency
+      const rawEmployeeType = queryEmployeeType || bodyEmployeeType;
+      const normalizedEmployeeType = rawEmployeeType && 
+        rawEmployeeType !== 'null' && 
+        rawEmployeeType !== '' 
+        ? String(rawEmployeeType).toLowerCase().trim() // Normalize to lowercase and trim whitespace
         : null;
       
       console.log('🔍 createLeavePolicy: Checking for duplicates:', {
         leaveType,
-        employeeType: normalizedEmployeeType,
+        queryEmployeeType,
+        bodyEmployeeType,
+        rawEmployeeType,
+        normalizedEmployeeType,
         adminId,
         note: normalizedEmployeeType ? `Policy will be created for ${normalizedEmployeeType} employees only` : 'WARNING: Policy will be generic (null employeeType) - may not show in onshore/offshore tabs'
       });
@@ -399,22 +481,54 @@ export class LeavePolicyController {
           // IMPORTANT: Check across ALL policies, not just current admin's policies
           // This allows creating separate policies for onshore/offshore (they are independent)
           // But prevents duplicate policies within the same employeeType category
-          const existingPolicyCheck = await prisma.leavePolicy.findFirst({
-            where: {
-              leaveType: leaveType,
-              employeeType: normalizedEmployeeType // Match exact employeeType (null for generic)
-              // NOTE: Removed createdBy filter - policies are unique per employeeType across all admins
-            } as any
-          });
+          // Use case-insensitive comparison to handle any casing inconsistencies in existing data
+          let existingPolicyCheck;
+          if (normalizedEmployeeType) {
+            // Use raw query for case-insensitive comparison
+            const result = await prisma.$queryRawUnsafe<any[]>(
+              `SELECT id, leave_type, employee_type FROM leave_policies 
+               WHERE leave_type = $1 AND LOWER(employee_type) = LOWER($2) 
+               LIMIT 1`,
+              leaveType,
+              normalizedEmployeeType
+            );
+            existingPolicyCheck = result && result.length > 0 ? result[0] : null;
+          } else {
+            // For null employeeType, use Prisma query
+            existingPolicyCheck = await prisma.leavePolicy.findFirst({
+              where: {
+                leaveType: leaveType,
+                employeeType: null // Match null employeeType (generic policies)
+              } as any
+            });
+          }
           
           console.log('🔍 createLeavePolicy: Duplicate check result:', {
             found: !!existingPolicyCheck,
+            searchingFor: {
+              leaveType,
+              employeeType: normalizedEmployeeType
+            },
             existingPolicy: existingPolicyCheck ? {
               id: existingPolicyCheck.id,
               leaveType: existingPolicyCheck.leaveType,
-              employeeType: existingPolicyCheck.employeeType
+              employeeType: existingPolicyCheck.employeeType,
+              employeeTypeMatch: existingPolicyCheck.employeeType === normalizedEmployeeType
             } : null
           });
+          
+          // Debug: Check all policies with this leaveType to see what exists
+          const allPoliciesWithSameLeaveType = await prisma.leavePolicy.findMany({
+            where: {
+              leaveType: leaveType
+            } as any,
+            select: {
+              id: true,
+              leaveType: true,
+              employeeType: true
+            }
+          });
+          console.log('🔍 createLeavePolicy: All policies with leaveType', leaveType, ':', JSON.stringify(allPoliciesWithSameLeaveType, null, 2));
           
           if (existingPolicyCheck) {
             const existingEmployeeType = existingPolicyCheck.employeeType;
@@ -451,11 +565,13 @@ export class LeavePolicyController {
             if (hasEmployeeTypeColumn) {
               // Column exists, check with employee_type
               // IMPORTANT: Check across ALL policies, not just current admin's policies
+              // Use LOWER() for case-insensitive comparison to handle any casing inconsistencies
               let checkQuery = 'SELECT id FROM leave_policies WHERE leave_type = $1';
               const checkParams: any[] = [leaveType];
               
               if (normalizedEmployeeType) {
-                checkQuery += ' AND employee_type = $2';
+                // Use LOWER() for case-insensitive comparison
+                checkQuery += ' AND LOWER(employee_type) = LOWER($2)';
                 checkParams.push(normalizedEmployeeType);
               } else {
                 checkQuery += ' AND employee_type IS NULL';
@@ -526,9 +642,15 @@ export class LeavePolicyController {
         policy = await prisma.leavePolicy.create({
           data: {
             ...otherData,
-            employeeType: normalizedEmployeeType, // Use normalized value
+            employeeType: normalizedEmployeeType, // Use normalized value (lowercase, trimmed)
             createdBy: adminId
           } as any
+        });
+        
+        console.log('✅ createLeavePolicy: Policy created successfully:', {
+          id: policy.id,
+          leaveType: policy.leaveType,
+          employeeType: (policy as any).employeeType
         });
       } catch (error: any) {
         // Fallback: if employeeType column doesn't exist yet, use raw query
@@ -1082,23 +1204,71 @@ export class LeavePolicyController {
    */
   static async getLeavePolicyTypes(req: Request, res: Response): Promise<void> {
     try {
+      // Get employeeType from query params to filter leave types
+      const { employeeType: queryEmployeeType } = req.query;
+      
+      // Normalize employeeType: convert undefined, empty string, or 'null' to null, and lowercase for consistency
+      const rawEmployeeType = queryEmployeeType as string | undefined;
+      const normalizedEmployeeType = rawEmployeeType && 
+        rawEmployeeType !== 'null' && 
+        rawEmployeeType !== '' 
+        ? String(rawEmployeeType).toLowerCase().trim()
+        : null;
+      
+      console.log('🔍 getLeavePolicyTypes: Filtering by employeeType:', normalizedEmployeeType || 'all (null)');
+      
       let policies;
       try {
-        policies = await prisma.leavePolicy.findMany({
-          select: { leaveType: true },
-          distinct: ['leaveType']
-        });
+        // Filter by employeeType if provided
+        // IMPORTANT: Only return leave types that match the specified employeeType
+        // This ensures onshore and offshore tabs show separate leave types
+        if (normalizedEmployeeType) {
+          policies = await prisma.leavePolicy.findMany({
+            where: {
+              isActive: true,
+              employeeType: normalizedEmployeeType as any
+            } as any,
+            select: { leaveType: true },
+            distinct: ['leaveType']
+          });
+          
+          console.log('🔍 getLeavePolicyTypes: Found policies for employeeType', normalizedEmployeeType, ':', policies.length);
+        } else {
+          // If no employeeType specified, return all active leave types (for backward compatibility)
+          policies = await prisma.leavePolicy.findMany({
+            where: {
+              isActive: true
+            },
+            select: { leaveType: true },
+            distinct: ['leaveType']
+          });
+          
+          console.log('🔍 getLeavePolicyTypes: Found all active policies (no employeeType filter):', policies.length);
+        }
       } catch (error: any) {
         // Fallback: if employeeType column doesn't exist yet, use raw query
-        console.warn('⚠️ employeeType column not found, using fallback query. Please apply migration.');
-        const result = await prisma.$queryRaw<{ leaveType: string }[]>`
-          SELECT DISTINCT leave_type as "leaveType"
-          FROM leave_policies
-        `;
-        policies = result;
+        if (error.message?.includes('employee_type')) {
+          console.warn('⚠️ employeeType column not found, using fallback query. Please apply migration.');
+          let query = 'SELECT DISTINCT leave_type as "leaveType" FROM leave_policies WHERE is_active = true';
+          const params: any[] = [];
+          
+          if (normalizedEmployeeType) {
+            query += ' AND LOWER(employee_type) = LOWER($1)';
+            params.push(normalizedEmployeeType);
+          }
+          
+          const result = params.length > 0
+            ? await prisma.$queryRawUnsafe<{ leaveType: string }[]>(query, ...params)
+            : await prisma.$queryRawUnsafe<{ leaveType: string }[]>(query);
+          policies = result;
+        } else {
+          throw error;
+        }
       }
 
       const leaveTypes = policies.map(policy => policy.leaveType);
+      
+      console.log('🔍 getLeavePolicyTypes: Returning leave types:', leaveTypes);
       
       const response: ApiResponse = {
         success: true,

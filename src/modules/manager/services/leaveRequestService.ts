@@ -92,26 +92,72 @@ export class LeaveRequestService {
       });
 
       // Auto-detect if leave is paid from leave policy
-      // IMPORTANT: Strictly match employeeType - no fallback to null policies
-      // Onshore and Offshore policies are completely separate
-      const leavePolicy = await prisma.leavePolicy.findFirst({
-        where: {
-          leaveType: formData.leaveType,
-          employeeType: manager?.employeeType || undefined, // Strict match - only policies for this employeeType
-          isActive: true
-        },
-        select: { isPaid: true }
-      });
+      // IMPORTANT: First try exact match, then fallback to null policies for migration support
+      let leavePolicy = null;
+      
+      if (manager?.employeeType) {
+        // First try to get policy with exact employeeType match
+        leavePolicy = await prisma.leavePolicy.findFirst({
+          where: {
+            leaveType: formData.leaveType,
+            employeeType: manager.employeeType,
+            isActive: true
+          },
+          select: { isPaid: true }
+        });
+        
+        console.log('🔍 ManagerLeaveRequestService: Looking for policy with employeeType:', manager.employeeType);
+        console.log('🔍 ManagerLeaveRequestService: Found policy with exact match:', leavePolicy ? 'Yes' : 'No');
+        
+        // If no exact match found, fallback to null employeeType policies (for migration support)
+        if (!leavePolicy) {
+          console.warn('⚠️ ManagerLeaveRequestService: No policy found for employeeType:', manager.employeeType);
+          console.warn('⚠️ ManagerLeaveRequestService: Falling back to null employeeType policies (migration support)');
+          
+          leavePolicy = await prisma.leavePolicy.findFirst({
+            where: {
+              leaveType: formData.leaveType,
+              employeeType: null,
+              isActive: true
+            },
+            select: { isPaid: true }
+          });
+          
+          if (leavePolicy) {
+            console.warn('⚠️ ManagerLeaveRequestService: Using legacy policy with null employeeType.');
+            console.warn('⚠️ ManagerLeaveRequestService: Admin should update this policy to set employeeType =', manager.employeeType);
+          }
+        }
+      } else {
+        // If manager has no employeeType, try null policies as fallback
+        console.warn('⚠️ ManagerLeaveRequestService: Manager has no employeeType, trying null policies as fallback');
+        leavePolicy = await prisma.leavePolicy.findFirst({
+          where: {
+            leaveType: formData.leaveType,
+            employeeType: null,
+            isActive: true
+          },
+          select: { isPaid: true }
+        });
+      }
+      
       // Default to true (paid) if policy not found
       let isPaid = leavePolicy?.isPaid ?? true;
 
-      // Check if manager is in probation period
-      const isInProbation = manager?.probationStatus === 'active' || manager?.probationStatus === 'extended';
-      
-      // Rule: Employees in probation cannot use leave balance at all
-      // They can only take unpaid leave
-      if (isInProbation) {
-        // Check if they have any leave balance (even if locked)
+      // Check if leave dates overlap with probation period
+      // Rule: If ANY part of the leave falls within probation period, it must be unpaid
+      const leaveOverlapsProbation = this.doesLeaveOverlapProbation(
+        startDate,
+        endDate,
+        manager?.probationStatus,
+        manager?.probationStartDate,
+        manager?.probationEndDate
+      );
+
+      if (leaveOverlapsProbation) {
+        // All leaves taken during probation period are unpaid
+        // Rule: Employees in probation cannot use leave balance at all
+        // They can only take unpaid leave
         const { BusinessRulesService } = await import('../../../services/businessRulesService');
         const balance = await BusinessRulesService.calculateLeaveBalance(managerId);
         const leaveBalance = balance[formData.leaveType];
@@ -123,20 +169,31 @@ export class LeaveRequestService {
           throw new Error('You cannot use leave balance during your probation period. Leaves earned during probation are locked until you complete your probation. You can only take unpaid leave during probation.');
         }
         
-        // All leaves taken during probation are unpaid
         isPaid = false;
-        console.log('💰 ManagerLeaveRequestService: Manager is in probation, marking as unpaid leave');
+        console.log('💰 ManagerLeaveRequestService: Leave overlaps with probation period, marking as unpaid leave');
       } else {
-        // Check if request exceeds leave balance - if so, mark as unpaid
-        // Note: Manager requests don't go through business rules validation, so we check balance directly
-        const { BusinessRulesService } = await import('../../../services/businessRulesService');
-        const balance = await BusinessRulesService.calculateLeaveBalance(managerId);
-        const leaveBalance = balance[formData.leaveType];
+        // Employee has completed probation - check if they can use leave balance
+        // Only permanent employees (who completed probation) can use leave balance for paid leaves
+        const hasCompletedProbation = !manager?.probationStatus || 
+                                     manager.probationStatus === 'completed' ||
+                                     (manager.probationStatus !== 'active' && manager.probationStatus !== 'extended');
         
-        if (leaveBalance && leaveBalance.remaining < totalDays) {
-          // Request exceeds available balance, mark as unpaid
+        if (!hasCompletedProbation) {
+          // Manager is still in probation (shouldn't happen if dates don't overlap, but safety check)
           isPaid = false;
-          console.log('💰 ManagerLeaveRequestService: Request exceeds balance, marking as unpaid leave');
+          console.log('💰 ManagerLeaveRequestService: Manager still in probation, marking as unpaid leave');
+        } else {
+          // Check if request exceeds leave balance - if so, mark as unpaid
+          // Note: Manager requests don't go through business rules validation, so we check balance directly
+          const { BusinessRulesService } = await import('../../../services/businessRulesService');
+          const balance = await BusinessRulesService.calculateLeaveBalance(managerId);
+          const leaveBalance = balance[formData.leaveType];
+          
+          if (leaveBalance && leaveBalance.remaining < totalDays) {
+            // Request exceeds available balance, mark as unpaid
+            isPaid = false;
+            console.log('💰 ManagerLeaveRequestService: Request exceeds balance, marking as unpaid leave');
+          }
         }
       }
 
@@ -658,42 +715,92 @@ export class LeaveRequestService {
    */
   static async getLeaveBalance(managerId: string): Promise<Record<string, unknown>> {
     try {
-      // Get leave balance from database
-      const leaveBalance = await prisma.leaveBalance.findFirst({
-        where: {
-          userId: managerId,
-          year: new Date().getFullYear()
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Fetching leave balance for manager:', managerId);
+      
+      // Get manager info including employeeType
+      const manager = await prisma.user.findUnique({
+        where: { id: managerId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          employeeType: true
         }
       });
 
-      if (leaveBalance) {
-        return {
-          annual: {
-            total: leaveBalance.annualTotal,
-            used: leaveBalance.annualUsed,
-            remaining: leaveBalance.annualRemaining
-          },
-          sick: {
-            total: leaveBalance.sickTotal,
-            used: leaveBalance.sickUsed,
-            remaining: leaveBalance.sickRemaining
-          },
-          casual: {
-            total: leaveBalance.casualTotal,
-            used: leaveBalance.casualUsed,
-            remaining: leaveBalance.casualRemaining
-          }
+      if (!manager) {
+        console.error('❌ ManagerLeaveRequestService getLeaveBalance: Manager not found:', managerId);
+        return {};
+      }
+
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Manager employeeType:', manager.employeeType || '❌ NOT SET');
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Manager Name:', manager.name);
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Manager Email:', manager.email);
+      
+      if (!manager.employeeType) {
+        console.warn('⚠️ ManagerLeaveRequestService getLeaveBalance: Manager has no employeeType assigned!');
+        console.warn('⚠️ ManagerLeaveRequestService getLeaveBalance: Admin must assign employeeType (onshore/offshore) to this manager');
+        console.warn('⚠️ ManagerLeaveRequestService getLeaveBalance: Steps: Go to Employees page → Edit manager → Set Employee Type');
+      }
+
+      // Use BusinessRulesService to calculate leave balance dynamically
+      // This service already handles employeeType filtering and calculates balance based on policies
+      const { BusinessRulesService } = await import('../../../services/businessRulesService');
+      const currentYear = new Date().getFullYear();
+      
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Calling BusinessRulesService.calculateLeaveBalance for year:', currentYear);
+      const balance = await BusinessRulesService.calculateLeaveBalance(managerId, currentYear);
+
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Calculated balance:', JSON.stringify(balance, null, 2));
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Balance keys:', Object.keys(balance));
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Balance count:', Object.keys(balance).length);
+      
+      // Debug: Check what policies exist in database
+      const allPolicies = await prisma.leavePolicy.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          leaveType: true,
+          employeeType: true,
+          totalDaysPerYear: true,
+          isActive: true
+        }
+      });
+      console.log('🔍 ManagerLeaveRequestService getLeaveBalance: All active policies in database:', JSON.stringify(allPolicies, null, 2));
+      
+      // Check policies matching manager's employeeType
+      if (manager.employeeType) {
+        const matchingPolicies = allPolicies.filter(p => p.employeeType === manager.employeeType);
+        console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Policies matching employeeType', manager.employeeType, ':', matchingPolicies.length);
+        console.log('🔍 ManagerLeaveRequestService getLeaveBalance: Matching policies:', JSON.stringify(matchingPolicies, null, 2));
+      }
+
+      // Transform the balance to match the expected format
+      // BusinessRulesService returns: { [leaveType]: { total, used, remaining, pending } }
+      const formattedBalance: Record<string, unknown> = {};
+      
+      for (const [leaveType, balanceData] of Object.entries(balance)) {
+        formattedBalance[leaveType] = {
+          total: balanceData.total || 0,
+          used: balanceData.used || 0,
+          remaining: balanceData.remaining || 0,
+          pending: balanceData.pending || 0
         };
       }
 
-      // Return default values if no balance found
-      return {
-        annual: { total: 25, used: 0, remaining: 25 },
-        sick: { total: 10, used: 0, remaining: 10 },
-        casual: { total: 8, used: 0, remaining: 8 }
-      };
+      // If no balance found, return empty object (don't use hardcoded defaults)
+      if (Object.keys(formattedBalance).length === 0) {
+        console.warn('⚠️ ManagerLeaveRequestService getLeaveBalance: No leave balance calculated. This might mean:');
+        console.warn('  1. Manager has no employeeType assigned');
+        console.warn('  2. No leave policies exist for this employeeType');
+        console.warn('  3. Manager is new and policies haven\'t been set up yet');
+        return {};
+      }
+
+      console.log('✅ ManagerLeaveRequestService getLeaveBalance: Returning formatted balance:', JSON.stringify(formattedBalance, null, 2));
+      return formattedBalance;
     } catch (error) {
-      console.error('Error fetching leave balance:', error);
+      console.error('❌ ManagerLeaveRequestService getLeaveBalance: Error fetching leave balance:', error);
       throw new Error('Failed to fetch leave balance');
     }
   }
@@ -791,6 +898,44 @@ export class LeaveRequestService {
         approvalRate: 0
       };
     }
+  }
+
+  /**
+   * Check if leave dates overlap with probation period
+   * Returns true if ANY part of the leave falls within the probation period
+   */
+  private static doesLeaveOverlapProbation(
+    leaveStartDate: Date,
+    leaveEndDate: Date,
+    probationStatus: string | null | undefined,
+    probationStartDate: Date | null | undefined,
+    probationEndDate: Date | null | undefined
+  ): boolean {
+    // If no probation status or probation is completed/terminated, no overlap
+    if (!probationStatus || probationStatus === 'completed' || probationStatus === 'terminated') {
+      return false;
+    }
+
+    // If probation status is active or extended, check date overlap
+    if (probationStatus === 'active' || probationStatus === 'extended') {
+      if (!probationStartDate || !probationEndDate) {
+        // If dates are missing but status is active/extended, assume overlap for safety
+        return true;
+      }
+
+      const probStart = new Date(probationStartDate);
+      const probEnd = new Date(probationEndDate);
+      const leaveStart = new Date(leaveStartDate);
+      const leaveEnd = new Date(leaveEndDate);
+
+      // Check if leave dates overlap with probation period
+      // Overlap occurs if: leaveStart <= probEnd AND leaveEnd >= probStart
+      const overlaps = leaveStart <= probEnd && leaveEnd >= probStart;
+      
+      return overlaps;
+    }
+
+    return false;
   }
 
   /**

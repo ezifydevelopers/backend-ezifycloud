@@ -101,6 +101,10 @@ router.get('/team/stats',
   TeamController.getTeamStats
 );
 
+router.get('/team/monthly-leave-stats', 
+  TeamController.getTeamMonthlyLeaveStats
+);
+
 router.get('/team/departments', 
   TeamController.getTeamDepartments
 );

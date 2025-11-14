@@ -652,6 +652,198 @@ export class EmployeeService {
   }
 
   /**
+   * Permanently delete employee from database (hard delete)
+   * WARNING: This will permanently remove all employee data including leave requests, balances, etc.
+   */
+  static async permanentlyDeleteEmployee(id: string): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log(`🔍 EmployeeService: Starting permanent delete process for employee ID: ${id}`);
+      
+      // Check if employee exists
+      const employee = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true
+        }
+      });
+
+      if (!employee) {
+        console.log(`❌ EmployeeService: Employee not found with ID: ${id}`);
+        return {
+          success: false,
+          message: 'Employee not found'
+        };
+      }
+
+      // Prevent deleting admin users
+      if (employee.role === 'admin') {
+        console.log(`❌ EmployeeService: Cannot delete admin user: ${employee.name}`);
+        return {
+          success: false,
+          message: 'Cannot permanently delete admin users. Please deactivate them instead.'
+        };
+      }
+
+      // Use a transaction to ensure all deletions succeed or none do
+      await prisma.$transaction(async (tx) => {
+        // 1. Delete leave requests (and related documents, salary deductions)
+        await tx.leaveRequest.deleteMany({
+          where: { userId: id }
+        });
+
+        // 2. Delete leave balances
+        await tx.leaveBalance.deleteMany({
+          where: { userId: id }
+        });
+
+        // 3. Delete leave accruals (has cascade, but being explicit)
+        await tx.leaveAccrual.deleteMany({
+          where: { userId: id }
+        });
+
+        // 4. Delete attendance records
+        await tx.attendanceRecord.deleteMany({
+          where: { userId: id }
+        });
+
+        // 5. Delete salary records
+        await tx.monthlySalary.deleteMany({
+          where: { userId: id }
+        });
+        await tx.employeeSalary.deleteMany({
+          where: { userId: id }
+        });
+
+        // 6. Update subordinates to remove manager reference
+        await tx.user.updateMany({
+          where: { managerId: id },
+          data: { managerId: null }
+        });
+
+        // 7. Update leave requests where this user was the approver
+        await tx.leaveRequest.updateMany({
+          where: { approvedBy: id },
+          data: { approvedBy: null }
+        });
+
+        // 8. Update monthly salaries where this user was the approver
+        await tx.monthlySalary.updateMany({
+          where: { approvedBy: id },
+          data: { approvedBy: null }
+        });
+
+        // 9. Delete workspace memberships
+        await tx.workspaceMember.deleteMany({
+          where: { userId: id }
+        });
+
+        // 10. Delete workspace invites
+        await tx.workspaceInvite.deleteMany({
+          where: { 
+            OR: [
+              { invitedBy: id },
+              { email: employee.email }
+            ]
+          }
+        });
+
+        // 11. Delete board memberships
+        await tx.boardMember.deleteMany({
+          where: { userId: id }
+        });
+
+        // 12. Delete comments created by user (and related files will cascade)
+        // First delete comment files uploaded by user
+        await tx.commentFile.deleteMany({
+          where: { uploadedBy: id }
+        });
+        // Delete comments created by user
+        await tx.comment.deleteMany({
+          where: { userId: id }
+        });
+        // Update comments resolved by user (resolvedBy is nullable)
+        await tx.comment.updateMany({
+          where: { resolvedBy: id },
+          data: { resolvedBy: null }
+        });
+
+        // 13. Delete item files uploaded by user
+        await tx.itemFile.deleteMany({
+          where: { uploadedBy: id }
+        });
+
+        // 14. Delete items created by user (createdBy is not nullable, so we must delete)
+        await tx.item.deleteMany({
+          where: { createdBy: id }
+        });
+
+        // 15. Delete activities
+        await tx.activity.deleteMany({
+          where: { userId: id }
+        });
+
+        // 16. Delete approvals
+        await tx.approval.deleteMany({
+          where: { approverId: id }
+        });
+
+        // 17. Delete dashboards, reports, templates, boards, columns created by user
+        // (createdBy is not nullable, so we must delete these records)
+        await tx.dashboard.deleteMany({
+          where: { createdBy: id }
+        });
+        await tx.report.deleteMany({
+          where: { createdBy: id }
+        });
+        await tx.boardTemplate.deleteMany({
+          where: { createdBy: id }
+        });
+        await tx.invoiceTemplate.deleteMany({
+          where: { createdBy: id }
+        });
+        await tx.board.deleteMany({
+          where: { createdBy: id }
+        });
+        await tx.column.deleteMany({
+          where: { createdBy: id }
+        });
+
+        // 18. Delete notifications
+        await tx.notification.deleteMany({
+          where: { userId: id }
+        });
+
+        // 19. Delete audit logs (optional - you might want to keep these for compliance)
+        // Uncomment if you want to delete audit logs
+        // await tx.auditLog.deleteMany({
+        //   where: { userId: id }
+        // });
+
+        // 20. Finally, delete the user
+        await tx.user.delete({
+          where: { id }
+        });
+      });
+
+      console.log(`✅ EmployeeService: Employee ${employee.name} (${employee.email}) has been permanently deleted from database`);
+      
+      return {
+        success: true,
+        message: `Employee ${employee.name} has been permanently deleted from the database. All associated data has been removed.`
+      };
+    } catch (error) {
+      console.error('❌ EmployeeService: Error permanently deleting employee:', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to permanently delete employee'
+      };
+    }
+  }
+
+  /**
    * Toggle employee status (active/inactive)
    */
   static async toggleEmployeeStatus(id: string, isActive: boolean): Promise<Employee> {
@@ -981,18 +1173,26 @@ export class EmployeeService {
       });
 
       // Get active leave policies from database filtered by employeeType
-      // Policies with employeeType null apply to both onshore and offshore
-      // Handle case where migration hasn't been applied yet
+      // IMPORTANT: Strictly filter by employeeType - no fallback to null policies
+      // Employees should ONLY see policies that match their employeeType (onshore/offshore)
       let leavePolicies;
       try {
+        const whereClause: any = {
+          isActive: true
+        };
+        
+        if (user.employeeType) {
+          // Show only policies with exact employeeType match
+          whereClause.employeeType = user.employeeType;
+          console.log('🔍 Admin getEmployeeLeaveBalance: Filtering by employeeType:', user.employeeType, '(exact match only, no fallback)');
+        } else {
+          // If employee has no employeeType, return empty (they need to be assigned an employeeType)
+          whereClause.employeeType = '__NO_TYPE__'; // This will return no results
+          console.log('⚠️ Admin getEmployeeLeaveBalance: Employee has no employeeType, returning empty result. Employee needs to be assigned an employeeType.');
+        }
+        
         leavePolicies = await prisma.leavePolicy.findMany({
-          where: {
-            isActive: true,
-            OR: [
-              { employeeType: user.employeeType as any }, // Policy specific to employee type
-              { employeeType: null as any } // Policy applies to both types
-            ]
-          } as any,
+          where: whereClause as any,
           select: {
             leaveType: true,
             totalDaysPerYear: true,
@@ -1684,31 +1884,11 @@ export class EmployeeService {
       const startOfYear = new Date(year, 0, 1);
       const endOfYear = new Date(year, 11, 31, 23, 59, 59);
 
-      // Build where clause - filter by leave dates (startDate/endDate) that fall within the year
-      // This ensures we count leaves that were actually taken during the year, not just submitted
+      // Build where clause - get ALL approved leaves for employees
+      // We'll filter by year when calculating paid/unpaid days, but include all leaves in the response
+      // This ensures all approved leaves are visible in the UI, even if they're outside the selected year
       const whereClause: any = {
-        status: 'approved',
-        OR: [
-          // Leaves that start within the year
-          {
-            startDate: {
-              gte: startOfYear,
-              lte: endOfYear
-            }
-          },
-          // Leaves that end within the year
-          {
-            endDate: {
-              gte: startOfYear,
-              lte: endOfYear
-            }
-          },
-          // Leaves that span the entire year (start before and end after)
-          {
-            startDate: { lte: startOfYear },
-            endDate: { gte: endOfYear }
-          }
-        ]
+        status: 'approved'
       };
 
       if (filters?.employeeId) {
@@ -1716,6 +1896,13 @@ export class EmployeeService {
       }
 
       // Get all approved leave requests for the year (based on actual leave dates)
+      console.log('🔍 getPaidUnpaidLeaveStats: Query filters:', {
+        year,
+        startOfYear: startOfYear.toISOString(),
+        endOfYear: endOfYear.toISOString(),
+        whereClause: JSON.stringify(whereClause, null, 2)
+      });
+      
       const leaveRequests = await prisma.leaveRequest.findMany({
         where: whereClause,
         include: {
@@ -1738,10 +1925,25 @@ export class EmployeeService {
         }
       });
 
+      console.log('🔍 getPaidUnpaidLeaveStats: Found', leaveRequests.length, 'approved leave requests');
+      if (leaveRequests.length > 0) {
+        console.log('🔍 getPaidUnpaidLeaveStats: Sample requests:', leaveRequests.slice(0, 3).map(r => ({
+          id: r.id,
+          userId: r.userId,
+          leaveType: r.leaveType,
+          startDate: r.startDate,
+          endDate: r.endDate,
+          status: r.status,
+          employeeName: r.user.name
+        })));
+      }
+
       // Filter by department if specified
       let filteredRequests = leaveRequests;
       if (filters?.department && filters.department !== 'all') {
+        const beforeFilter = filteredRequests.length;
         filteredRequests = leaveRequests.filter(req => req.user.department === filters.department);
+        console.log('🔍 getPaidUnpaidLeaveStats: Filtered by department', filters.department, ':', beforeFilter, '->', filteredRequests.length);
       }
 
       // Group by employee
@@ -1773,6 +1975,10 @@ export class EmployeeService {
         const requestEndDate = new Date(request.endDate);
         const employee = request.user;
         
+        // Check if this leave overlaps with the selected year
+        // A leave overlaps with the year if: startDate <= endOfYear AND endDate >= startOfYear
+        const leaveOverlapsYear = requestStartDate <= endOfYear && requestEndDate >= startOfYear;
+        
         // Calculate actual days within the selected year
         // If leave spans multiple years, only count days within the selected year
         const leaveStartInYear = requestStartDate < startOfYear ? startOfYear : requestStartDate;
@@ -1782,48 +1988,61 @@ export class EmployeeService {
         const daysInYear = Math.max(0, Math.ceil((leaveEndInYear.getTime() - leaveStartInYear.getTime()) / (1000 * 60 * 60 * 24)) + 1);
         const totalDays = parseFloat(request.totalDays.toString());
         
-        // If leave spans outside the year, calculate proportional days
-        let daysToCount = totalDays;
-        if (requestStartDate < startOfYear || requestEndDate > endOfYear) {
-          // Calculate proportion of leave days that fall within the selected year
-          const totalLeaveDays = Math.ceil((requestEndDate.getTime() - requestStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-          if (totalLeaveDays > 0) {
-            daysToCount = (daysInYear / totalLeaveDays) * totalDays;
-            daysToCount = Math.round(daysToCount * 100) / 100; // Round to 2 decimal places
+        // If leave overlaps with the year, calculate proportional days for statistics
+        // If leave doesn't overlap, still include it in leaveRequests but with 0 days counted
+        let daysToCount = 0;
+        if (leaveOverlapsYear) {
+          daysToCount = totalDays;
+          if (requestStartDate < startOfYear || requestEndDate > endOfYear) {
+            // Calculate proportion of leave days that fall within the selected year
+            const totalLeaveDays = Math.ceil((requestEndDate.getTime() - requestStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            if (totalLeaveDays > 0) {
+              daysToCount = (daysInYear / totalLeaveDays) * totalDays;
+              daysToCount = Math.round(daysToCount * 100) / 100; // Round to 2 decimal places
+            }
           }
         }
         
         // Calculate paid/unpaid days based on probation status and balance
+        // Only calculate for leaves that overlap with the selected year
         let paidDays = 0;
-        let unpaidDays = daysToCount;
+        let unpaidDays = 0;
         
-        // Check if employee was in probation when leave was taken
-        const wasInProbation = this.wasEmployeeInProbation(
-          employee,
-          requestStartDate
-        );
-        
-        if (wasInProbation) {
-          // All leaves taken during probation are unpaid
-          paidDays = 0;
+        if (daysToCount > 0 && leaveOverlapsYear) {
           unpaidDays = daysToCount;
-        } else {
-          // Employee completed probation - calculate based on available balance at leave time
-          const balanceAtLeaveTime = await this.calculateBalanceAtDate(
-            employeeId,
-            request.leaveType,
-            requestStartDate
+          
+          // Check if leave period overlaps with probation period
+          // If ANY part of the leave falls within probation, it must be unpaid
+          const leaveOverlapsProbation = this.doesLeaveOverlapProbation(
+            requestStartDate,
+            requestEndDate,
+            employee.probationStatus,
+            employee.probationStartDate,
+            employee.probationEndDate
           );
           
-          // Split leave into paid and unpaid portions
-          // Paid = min(leave days, available balance)
-          // Unpaid = remaining days that exceed balance
-          paidDays = Math.min(daysToCount, Math.max(0, balanceAtLeaveTime));
-          unpaidDays = Math.max(0, daysToCount - balanceAtLeaveTime);
-          
-          // Round to 2 decimal places
-          paidDays = Math.round(paidDays * 100) / 100;
-          unpaidDays = Math.round(unpaidDays * 100) / 100;
+          if (leaveOverlapsProbation) {
+            // All leaves taken during probation period are unpaid
+            paidDays = 0;
+            unpaidDays = daysToCount;
+          } else {
+            // Employee completed probation - calculate based on available balance at leave time
+            const balanceAtLeaveTime = await this.calculateBalanceAtDate(
+              employeeId,
+              request.leaveType,
+              requestStartDate
+            );
+            
+            // Split leave into paid and unpaid portions
+            // Paid = min(leave days, available balance)
+            // Unpaid = remaining days that exceed balance
+            paidDays = Math.min(daysToCount, Math.max(0, balanceAtLeaveTime));
+            unpaidDays = Math.max(0, daysToCount - balanceAtLeaveTime);
+            
+            // Round to 2 decimal places
+            paidDays = Math.round(paidDays * 100) / 100;
+            unpaidDays = Math.round(unpaidDays * 100) / 100;
+          }
         }
 
         if (!employeeStatsMap.has(employeeId)) {
@@ -1848,25 +2067,53 @@ export class EmployeeService {
         stats.totalDays += daysToCount;
 
         // Update by leave type
+        // IMPORTANT: Include ALL leave types in the aggregation, even if they don't overlap with the selected year
+        // This ensures all leave types are visible in the "By Leave Type" tab
         const leaveType = request.leaveType;
         if (!stats.byLeaveType.has(leaveType)) {
           stats.byLeaveType.set(leaveType, { paidDays: 0, unpaidDays: 0, totalDays: 0 });
         }
         const typeStats = stats.byLeaveType.get(leaveType)!;
-        typeStats.paidDays += paidDays;
-        typeStats.unpaidDays += unpaidDays;
-        typeStats.totalDays += daysToCount;
+        
+        // For leaves that overlap with the selected year, add the calculated paid/unpaid days
+        // For leaves outside the year, we still want to show them but with 0.0 for the year-filtered stats
+        // However, we need to ensure the leave type is visible even if it has 0 days for the current year
+        if (leaveOverlapsYear) {
+          typeStats.paidDays += paidDays;
+          typeStats.unpaidDays += unpaidDays;
+          typeStats.totalDays += daysToCount;
+        }
+        // Note: Leaves outside the year will remain at 0.0, which is correct for year-filtered statistics
+        // But the leave type will still be visible in the "By Leave Type" tab
 
         // Add to leave requests (store calculated paid/unpaid for display)
+        // IMPORTANT: Add ALL approved leave requests, even if they don't overlap with the selected year
+        // This ensures all leaves are visible in the UI, with proper paid/unpaid status for the year
         stats.leaveRequests.push({
           id: request.id,
           leaveType: request.leaveType,
           startDate: request.startDate,
           endDate: request.endDate,
-          totalDays,
-          isPaid: paidDays > 0, // True if any paid days, false if all unpaid
+          totalDays: leaveOverlapsYear ? daysToCount : totalDays, // Show days in year if overlaps, otherwise full days
+          isPaid: paidDays > 0, // True if any paid days for the selected year, false if all unpaid or outside year
           status: request.status,
           submittedAt: request.submittedAt
+        });
+        
+        console.log('🔍 getPaidUnpaidLeaveStats: Added leave request to stats:', {
+          employeeId,
+          employeeName: request.user.name,
+          leaveRequestId: request.id,
+          leaveType: request.leaveType,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          totalDays,
+          daysToCount,
+          leaveOverlapsYear,
+          paidDays,
+          unpaidDays,
+          isPaid: paidDays > 0,
+          totalLeaveRequestsForEmployee: stats.leaveRequests.length
         });
       }
 
@@ -1881,6 +2128,19 @@ export class EmployeeService {
 
       // Sort by total days (descending)
       result.sort((a, b) => b.totalDays - a.totalDays);
+
+      // Log final results for debugging
+      console.log('🔍 getPaidUnpaidLeaveStats: Final results:', {
+        totalEmployees: result.length,
+        employeesWithLeaves: result.filter(s => s.leaveRequests.length > 0).length,
+        totalLeaveRequests: result.reduce((sum, s) => sum + s.leaveRequests.length, 0),
+        employeesBreakdown: result.map(s => ({
+          employeeId: s.employeeId,
+          employeeName: s.employeeName,
+          leaveRequestCount: s.leaveRequests.length,
+          leaveRequestIds: s.leaveRequests.map(r => r.id)
+        }))
+      });
 
       return result;
     } catch (error) {
@@ -1913,6 +2173,44 @@ export class EmployeeService {
         // If only start date exists, check if date is after start
         return checkDate >= startDate;
       }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if leave dates overlap with probation period
+   * Returns true if ANY part of the leave falls within the probation period
+   */
+  private static doesLeaveOverlapProbation(
+    leaveStartDate: Date,
+    leaveEndDate: Date,
+    probationStatus: string | null | undefined,
+    probationStartDate: Date | null | undefined,
+    probationEndDate: Date | null | undefined
+  ): boolean {
+    // If no probation status or probation is completed/terminated, no overlap
+    if (!probationStatus || probationStatus === 'completed' || probationStatus === 'terminated') {
+      return false;
+    }
+
+    // If probation status is active or extended, check date overlap
+    if (probationStatus === 'active' || probationStatus === 'extended') {
+      if (!probationStartDate || !probationEndDate) {
+        // If dates are missing but status is active/extended, assume overlap for safety
+        return true;
+      }
+
+      const probStart = new Date(probationStartDate);
+      const probEnd = new Date(probationEndDate);
+      const leaveStart = new Date(leaveStartDate);
+      const leaveEnd = new Date(leaveEndDate);
+
+      // Check if leave dates overlap with probation period
+      // Overlap occurs if: leaveStart <= probEnd AND leaveEnd >= probStart
+      const overlaps = leaveStart <= probEnd && leaveEnd >= probStart;
+      
+      return overlaps;
     }
 
     return false;
@@ -2035,5 +2333,332 @@ export class EmployeeService {
     const daysServed = this.calculateDaysServed(startDate, currentDate);
     // Convert days to months for backward compatibility
     return daysServed / 30.44; // Average days per month
+  }
+
+  /**
+   * Get monthly paid and unpaid leave statistics for all employees
+   */
+  static async getMonthlyPaidUnpaidLeaveStats(filters?: {
+    department?: string;
+    year?: number;
+    employeeId?: string;
+    employeeIds?: string[]; // Optional list of employee IDs to filter by
+  }): Promise<Array<{
+    employeeId: string;
+    employeeName: string;
+    employeeEmail: string;
+    department: string | null;
+    monthlyStats: Array<{
+      month: number;
+      monthName: string;
+      paidDays: number;
+      unpaidDays: number;
+      totalDays: number;
+    }>;
+    yearlyTotal: {
+      paidDays: number;
+      unpaidDays: number;
+      totalDays: number;
+    };
+  }>> {
+    try {
+      const year = filters?.year || new Date().getFullYear();
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31, 23, 59, 59);
+
+      // Build where clause
+      const whereClause: any = {
+        status: 'approved',
+        OR: [
+          {
+            startDate: {
+              gte: startOfYear,
+              lte: endOfYear
+            }
+          },
+          {
+            endDate: {
+              gte: startOfYear,
+              lte: endOfYear
+            }
+          },
+          {
+            startDate: { lte: startOfYear },
+            endDate: { gte: endOfYear }
+          }
+        ]
+      };
+
+      if (filters?.employeeId) {
+        whereClause.userId = filters.employeeId;
+      } else if (filters?.employeeIds && filters.employeeIds.length > 0) {
+        whereClause.userId = { in: filters.employeeIds };
+      }
+
+      // Get all approved leave requests for the year
+      const leaveRequests = await prisma.leaveRequest.findMany({
+        where: whereClause,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              department: true,
+              probationStatus: true,
+              probationStartDate: true,
+              probationEndDate: true,
+              joinDate: true,
+              createdAt: true
+            }
+          }
+        },
+        orderBy: {
+          startDate: 'asc'
+        }
+      });
+
+      // Filter by department if specified
+      let filteredRequests = leaveRequests;
+      if (filters?.department && filters.department !== 'all') {
+        filteredRequests = leaveRequests.filter(req => req.user.department === filters.department);
+      }
+
+      // Initialize monthly stats for all 12 months
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+
+      // Group by employee
+      const employeeStatsMap = new Map<string, {
+        employeeId: string;
+        employeeName: string;
+        employeeEmail: string;
+        department: string | null;
+        monthlyStats: Map<number, { paidDays: number; unpaidDays: number; totalDays: number }>;
+      }>();
+
+      // Initialize all employees with 12 months of zero stats
+      const uniqueEmployees = new Map<string, typeof leaveRequests[0]['user']>();
+      filteredRequests.forEach(req => {
+        if (!uniqueEmployees.has(req.userId)) {
+          uniqueEmployees.set(req.userId, req.user);
+        }
+      });
+
+      // If employeeIds filter is provided, also include employees with no leaves
+      if (filters?.employeeIds && filters.employeeIds.length > 0) {
+        const employeesWithLeaves = Array.from(uniqueEmployees.keys());
+        const employeesWithoutLeaves = filters.employeeIds.filter(id => !employeesWithLeaves.includes(id));
+        
+        // Fetch employee data for those without leaves
+        if (employeesWithoutLeaves.length > 0) {
+          const employeesData = await prisma.user.findMany({
+            where: {
+              id: { in: employeesWithoutLeaves }
+            },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              department: true,
+              probationStatus: true,
+              probationStartDate: true,
+              probationEndDate: true,
+              joinDate: true,
+              createdAt: true
+            }
+          });
+          
+          employeesData.forEach(user => {
+            if (!uniqueEmployees.has(user.id)) {
+              uniqueEmployees.set(user.id, user);
+            }
+          });
+        }
+      } else if (!filters?.employeeId) {
+        // For admin view (no employeeIds filter), fetch all active employees
+        // This ensures we show all employees even if they have no leaves
+        const whereClause: any = {
+          isActive: true,
+          role: { in: ['employee', 'manager'] } // Only show employees and managers, not admins
+        };
+        
+        if (filters?.department && filters.department !== 'all') {
+          whereClause.department = filters.department;
+        }
+        
+        const allEmployees = await prisma.user.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            department: true,
+            probationStatus: true,
+            probationStartDate: true,
+            probationEndDate: true,
+            joinDate: true,
+            createdAt: true
+          }
+        });
+        
+        // Add employees who don't have any leaves
+        allEmployees.forEach(user => {
+          if (!uniqueEmployees.has(user.id)) {
+            uniqueEmployees.set(user.id, user);
+          }
+        });
+      }
+
+      uniqueEmployees.forEach((user, employeeId) => {
+        const monthlyStats = new Map<number, { paidDays: number; unpaidDays: number; totalDays: number }>();
+        for (let month = 1; month <= 12; month++) {
+          monthlyStats.set(month, { paidDays: 0, unpaidDays: 0, totalDays: 0 });
+        }
+        employeeStatsMap.set(employeeId, {
+          employeeId,
+          employeeName: user.name,
+          employeeEmail: user.email,
+          department: user.department,
+          monthlyStats
+        });
+      });
+
+      // Process each leave request and distribute days across months
+      for (const request of filteredRequests) {
+        const employeeId = request.userId;
+        const requestStartDate = new Date(request.startDate);
+        const requestEndDate = new Date(request.endDate);
+        const employee = request.user;
+        const totalDays = parseFloat(request.totalDays.toString());
+
+        // Calculate days for each month the leave spans
+        const currentDate = new Date(requestStartDate);
+        let remainingDays = totalDays;
+        const daysPerDate = new Map<string, number>(); // Track days per date
+
+        // Initialize all dates in the leave period
+        while (currentDate <= requestEndDate) {
+          const dateKey = currentDate.toISOString().split('T')[0];
+          daysPerDate.set(dateKey, 0);
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+
+        // Distribute days across dates (handle half days)
+        if (request.isHalfDay) {
+          const dateKey = requestStartDate.toISOString().split('T')[0];
+          daysPerDate.set(dateKey, 0.5);
+        } else if (request.shortLeaveHours) {
+          const dateKey = requestStartDate.toISOString().split('T')[0];
+          const hoursToDays = request.shortLeaveHours / 8;
+          daysPerDate.set(dateKey, hoursToDays);
+        } else {
+          // Full days - distribute evenly
+          const totalDates = daysPerDate.size;
+          const daysPerDateValue = totalDays / totalDates;
+          daysPerDate.forEach((_, key) => {
+            daysPerDate.set(key, daysPerDateValue);
+          });
+        }
+
+        // Group days by month
+        const daysByMonth = new Map<number, number>();
+        daysPerDate.forEach((days, dateKey) => {
+          const date = new Date(dateKey);
+          const month = date.getMonth() + 1; // 1-12
+          if (date.getFullYear() === year) {
+            daysByMonth.set(month, (daysByMonth.get(month) || 0) + days);
+          }
+        });
+
+        // Calculate paid/unpaid for each month
+        // Process months in order to track balance correctly
+        const sortedMonths = Array.from(daysByMonth.entries()).sort((a, b) => a[0] - b[0]);
+        let runningBalance = 0;
+
+        for (const [month, daysInMonth] of sortedMonths) {
+          if (month < 1 || month > 12) continue;
+
+          // Check if employee was in probation during this month
+          const monthStart = new Date(year, month - 1, 1);
+          const monthEnd = new Date(year, month, 0, 23, 59, 59);
+          const wasInProbation = this.wasEmployeeInProbation(employee, monthStart) ||
+                                this.wasEmployeeInProbation(employee, monthEnd);
+
+          let paidDays = 0;
+          let unpaidDays = daysInMonth;
+
+          if (!wasInProbation) {
+            // Calculate balance at the start of the month (before this leave)
+            const balanceAtMonthStart = await this.calculateBalanceAtDate(
+              employeeId,
+              request.leaveType,
+              monthStart
+            );
+
+            // Use the running balance if we've already processed earlier months of this leave
+            // Otherwise use the calculated balance
+            const availableBalance = runningBalance > 0 ? runningBalance : balanceAtMonthStart;
+
+            // Split into paid and unpaid
+            paidDays = Math.min(daysInMonth, Math.max(0, availableBalance));
+            unpaidDays = Math.max(0, daysInMonth - availableBalance);
+
+            // Update running balance for next month
+            runningBalance = Math.max(0, availableBalance - daysInMonth);
+          } else {
+            // All unpaid during probation
+            runningBalance = 0;
+          }
+
+          // Round to 2 decimal places
+          paidDays = Math.round(paidDays * 100) / 100;
+          unpaidDays = Math.round(unpaidDays * 100) / 100;
+
+          // Update employee stats
+          const stats = employeeStatsMap.get(employeeId);
+          if (stats) {
+            const monthStats = stats.monthlyStats.get(month)!;
+            monthStats.paidDays += paidDays;
+            monthStats.unpaidDays += unpaidDays;
+            monthStats.totalDays += daysInMonth;
+          }
+        }
+      }
+
+      // Convert to result format
+      const result = Array.from(employeeStatsMap.values()).map(stats => {
+        const monthlyStatsArray = Array.from(stats.monthlyStats.entries())
+          .map(([month, monthStats]) => ({
+            month,
+            monthName: monthNames[month - 1],
+            ...monthStats
+          }))
+          .sort((a, b) => a.month - b.month);
+
+        // Calculate yearly totals
+        const yearlyTotal = monthlyStatsArray.reduce((acc, month) => ({
+          paidDays: acc.paidDays + month.paidDays,
+          unpaidDays: acc.unpaidDays + month.unpaidDays,
+          totalDays: acc.totalDays + month.totalDays
+        }), { paidDays: 0, unpaidDays: 0, totalDays: 0 });
+
+        return {
+          ...stats,
+          monthlyStats: monthlyStatsArray,
+          yearlyTotal
+        };
+      });
+
+      // Sort by employee name
+      result.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+
+      return result;
+    } catch (error) {
+      console.error('Error in getMonthlyPaidUnpaidLeaveStats:', error);
+      throw new Error('Failed to fetch monthly paid/unpaid leave statistics');
+    }
   }
 }

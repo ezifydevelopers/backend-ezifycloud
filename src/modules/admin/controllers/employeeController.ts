@@ -52,6 +52,17 @@ export class EmployeeController {
     try {
       const { id } = req.params;
 
+      // Prevent route conflicts - if id matches a known route path, return 404
+      if (id === 'paid-unpaid-leaves' || id === 'monthly-paid-unpaid-leaves') {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Route not found',
+          error: 'Invalid route'
+        };
+        res.status(404).json(response);
+        return;
+      }
+
       if (!id) {
         const response: ApiResponse = {
           success: false,
@@ -646,6 +657,65 @@ export class EmployeeController {
   }
 
   /**
+   * Permanently delete employee from database (hard delete)
+   */
+  static async permanentlyDeleteEmployee(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const adminId = (req as any).user?.id;
+
+      console.log(`🔍 EmployeeController: Permanent delete request - ID: ${id}, Admin ID: ${adminId}`);
+
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Employee ID is required',
+          error: 'Missing employee ID'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (!adminId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Authentication required',
+          error: 'Admin user not found'
+        };
+        res.status(401).json(response);
+        return;
+      }
+
+      const result = await EmployeeService.permanentlyDeleteEmployee(id);
+
+      if (result.success) {
+        const response: ApiResponse = {
+          success: true,
+          message: result.message
+        };
+        res.status(200).json(response);
+      } else {
+        const response: ApiResponse = {
+          success: false,
+          message: result.message,
+          error: result.message
+        };
+        res.status(400).json(response);
+      }
+    } catch (error) {
+      console.error('❌ EmployeeController: Error in permanentlyDeleteEmployee:', error);
+      
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to permanently delete employee',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+
+      res.status(500).json(response);
+    }
+  }
+
+  /**
    * Process leave accrual for all eligible employees
    */
   static async processLeaveAccrual(req: Request, res: Response): Promise<void> {
@@ -1223,6 +1293,44 @@ export class EmployeeController {
       const response: ApiResponse = {
         success: false,
         message: 'Failed to retrieve paid/unpaid leave statistics',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Get monthly paid and unpaid leave statistics for all employees
+   */
+  static async getMonthlyPaidUnpaidLeaveStats(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('📊 getMonthlyPaidUnpaidLeaveStats called');
+      const department = req.query.department as string | undefined;
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+      const employeeId = req.query.employeeId as string | undefined;
+
+      console.log('📊 Filters:', { department, year, employeeId });
+
+      const stats = await EmployeeService.getMonthlyPaidUnpaidLeaveStats({
+        department,
+        year,
+        employeeId
+      });
+
+      console.log('📊 Stats count:', stats.length);
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Monthly paid/unpaid leave statistics retrieved successfully',
+        data: stats
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in getMonthlyPaidUnpaidLeaveStats:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to retrieve monthly paid/unpaid leave statistics',
         error: error instanceof Error ? error.message : 'Unknown error'
       };
       res.status(500).json(response);

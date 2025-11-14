@@ -72,20 +72,6 @@ export class LeaveRequestService {
         throw new Error(businessRulesResult.message || 'Business rules validation failed');
       }
 
-      // Handle salary deduction if there's a negative balance
-      if (businessRulesResult.salaryDeduction) {
-        console.log('💰 LeaveRequestService: Salary deduction required:', businessRulesResult.salaryDeduction);
-        // Create salary deduction record
-        await this.createSalaryDeductionRecord(employeeId, {
-          leaveType: formData.leaveType,
-          startDate,
-          endDate,
-          excessDays: businessRulesResult.salaryDeduction.days,
-          deductionAmount: businessRulesResult.salaryDeduction.amount,
-          reason: `Excess leave days beyond policy limit`
-        });
-      }
-
       // Apply policy enforcement
       console.log('🔍 LeaveRequestService: Enforcing policies...');
       const policyResult = await PolicyEnforcementService.enforceLeavePolicies(employeeId, {
@@ -157,32 +143,111 @@ export class LeaveRequestService {
       });
 
       // Auto-detect if leave is paid from leave policy
-      // IMPORTANT: Strictly match employeeType - no fallback to null policies
-      // Onshore and Offshore policies are completely separate
-      const leavePolicy = await prisma.leavePolicy.findFirst({
-        where: {
-          leaveType: formData.leaveType,
-          employeeType: employee?.employeeType || undefined, // Strict match - only policies for this employeeType
-          isActive: true
-        },
-        select: { isPaid: true }
-      });
+      // IMPORTANT: First try exact match, then fallback to null policies for migration support
+      let leavePolicy = null;
+      
+      if (employee?.employeeType) {
+        // First try to get policy with exact employeeType match
+        leavePolicy = await prisma.leavePolicy.findFirst({
+          where: {
+            leaveType: formData.leaveType,
+            employeeType: employee.employeeType,
+            isActive: true
+          },
+          select: { isPaid: true }
+        });
+        
+        console.log('🔍 LeaveRequestService: Looking for policy with employeeType:', employee.employeeType);
+        console.log('🔍 LeaveRequestService: Found policy with exact match:', leavePolicy ? 'Yes' : 'No');
+        
+        // If no exact match found, fallback to null employeeType policies (for migration support)
+        if (!leavePolicy) {
+          console.warn('⚠️ LeaveRequestService: No policy found for employeeType:', employee.employeeType);
+          console.warn('⚠️ LeaveRequestService: Falling back to null employeeType policies (migration support)');
+          
+          leavePolicy = await prisma.leavePolicy.findFirst({
+            where: {
+              leaveType: formData.leaveType,
+              employeeType: null,
+              isActive: true
+            },
+            select: { isPaid: true }
+          });
+          
+          if (leavePolicy) {
+            console.warn('⚠️ LeaveRequestService: Using legacy policy with null employeeType.');
+            console.warn('⚠️ LeaveRequestService: Admin should update this policy to set employeeType =', employee.employeeType);
+          }
+        }
+      } else {
+        // If employee has no employeeType, try null policies as fallback
+        console.warn('⚠️ LeaveRequestService: Employee has no employeeType, trying null policies as fallback');
+        leavePolicy = await prisma.leavePolicy.findFirst({
+          where: {
+            leaveType: formData.leaveType,
+            employeeType: null,
+            isActive: true
+          },
+          select: { isPaid: true }
+        });
+      }
+      
       // Default to true (paid) if policy not found
       let isPaid = leavePolicy?.isPaid ?? true;
 
-      // Check if employee is in probation period - if so, mark ALL leaves as unpaid
-      const isInProbation = employee?.probationStatus === 'active' || employee?.probationStatus === 'extended';
-      if (isInProbation) {
-        // All leaves taken during probation are unpaid
+      // Check if leave dates overlap with probation period
+      // Rule: If ANY part of the leave falls within probation period, it must be unpaid
+      const leaveOverlapsProbation = this.doesLeaveOverlapProbation(
+        startDate,
+        endDate,
+        employee?.probationStatus,
+        employee?.probationStartDate,
+        employee?.probationEndDate
+      );
+
+      // Also check if business rules indicated unpaid leave is required (e.g., employee in probation)
+      const requiresUnpaidLeave = businessRulesResult.requiresUnpaidLeave || leaveOverlapsProbation;
+
+      if (requiresUnpaidLeave) {
+        // All leaves taken during probation period are unpaid
         isPaid = false;
-        console.log('💰 LeaveRequestService: Employee is in probation, marking as unpaid leave');
+        console.log('💰 LeaveRequestService: Leave requires unpaid status (probation or business rules), marking as unpaid leave');
+      } else {
+        // Employee has completed probation - check if they can use leave balance
+        // Only permanent employees (who completed probation) can use leave balance for paid leaves
+        const hasCompletedProbation = !employee?.probationStatus || 
+                                     employee.probationStatus === 'completed' ||
+                                     (employee.probationStatus !== 'active' && employee.probationStatus !== 'extended');
+        
+        if (!hasCompletedProbation) {
+          // Employee is still in probation (shouldn't happen if dates don't overlap, but safety check)
+          isPaid = false;
+          console.log('💰 LeaveRequestService: Employee still in probation, marking as unpaid leave');
+        } else {
+          // Check if request exceeds leave balance - if so, mark as unpaid
+          if (businessRulesResult.salaryDeduction) {
+            // Request exceeds available balance, mark as unpaid
+            isPaid = false;
+            console.log('💰 LeaveRequestService: Request exceeds balance, marking as unpaid leave');
+          }
+        }
       }
 
-      // Check if request exceeds leave balance - if so, mark as unpaid
-      if (businessRulesResult.salaryDeduction) {
-        // Request exceeds available balance, mark as unpaid
-        isPaid = false;
-        console.log('💰 LeaveRequestService: Request exceeds balance, marking as unpaid leave');
+      // Handle salary deduction if there's a negative balance AND the leave is paid
+      // Only create salary deduction for paid leaves that exceed balance
+      if (businessRulesResult.salaryDeduction && isPaid) {
+        console.log('💰 LeaveRequestService: Salary deduction required for paid leave:', businessRulesResult.salaryDeduction);
+        // Create salary deduction record
+        await this.createSalaryDeductionRecord(employeeId, {
+          leaveType: formData.leaveType,
+          startDate,
+          endDate,
+          excessDays: businessRulesResult.salaryDeduction.days,
+          deductionAmount: businessRulesResult.salaryDeduction.amount,
+          reason: `Excess leave days beyond policy limit`
+        });
+      } else if (businessRulesResult.salaryDeduction && !isPaid) {
+        console.log('💰 LeaveRequestService: Leave is unpaid, skipping salary deduction even though balance is negative');
       }
 
       // Create leave request
@@ -593,7 +658,10 @@ export class LeaveRequestService {
         reviewedBy: request.approvedBy || undefined,
         reviewerName: undefined, // Would need to fetch from approver
         comments: request.comments || undefined,
-        attachments: [] // Not in schema
+        attachments: [], // Not in schema
+        isPaid: request.isPaid ?? true, // Include isPaid field from database
+        isHalfDay: request.isHalfDay || false,
+        halfDayPeriod: request.halfDayPeriod || undefined
       }));
 
       // Get summary data
@@ -716,6 +784,44 @@ export class LeaveRequestService {
         approvalRate: 0
       };
     }
+  }
+
+  /**
+   * Check if leave dates overlap with probation period
+   * Returns true if ANY part of the leave falls within the probation period
+   */
+  private static doesLeaveOverlapProbation(
+    leaveStartDate: Date,
+    leaveEndDate: Date,
+    probationStatus: string | null | undefined,
+    probationStartDate: Date | null | undefined,
+    probationEndDate: Date | null | undefined
+  ): boolean {
+    // If no probation status or probation is completed/terminated, no overlap
+    if (!probationStatus || probationStatus === 'completed' || probationStatus === 'terminated') {
+      return false;
+    }
+
+    // If probation status is active or extended, check date overlap
+    if (probationStatus === 'active' || probationStatus === 'extended') {
+      if (!probationStartDate || !probationEndDate) {
+        // If dates are missing but status is active/extended, assume overlap for safety
+        return true;
+      }
+
+      const probStart = new Date(probationStartDate);
+      const probEnd = new Date(probationEndDate);
+      const leaveStart = new Date(leaveStartDate);
+      const leaveEnd = new Date(leaveEndDate);
+
+      // Check if leave dates overlap with probation period
+      // Overlap occurs if: leaveStart <= probEnd AND leaveEnd >= probStart
+      const overlaps = leaveStart <= probEnd && leaveEnd >= probStart;
+      
+      return overlaps;
+    }
+
+    return false;
   }
 
   /**

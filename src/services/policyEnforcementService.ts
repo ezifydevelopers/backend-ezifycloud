@@ -68,12 +68,46 @@ export class PolicyEnforcementService {
         return result;
       }
 
-      const policy = await prisma.leavePolicy.findFirst({
+      // Get user's employeeType for filtering
+      const userEmployeeType = user.employeeType;
+      
+      // First try to find policy with exact employeeType match
+      let policy = await prisma.leavePolicy.findFirst({
         where: {
           leaveType: leaveRequest.leaveType,
-          isActive: true
+          isActive: true,
+          ...(userEmployeeType ? { employeeType: userEmployeeType } : {})
         }
       });
+      
+      // If no exact match found, fallback to null employeeType policies (for migration support)
+      if (!policy && userEmployeeType) {
+        console.warn('⚠️ PolicyEnforcementService: No policy found for employeeType:', userEmployeeType);
+        console.warn('⚠️ PolicyEnforcementService: Falling back to null employeeType policies (migration support)');
+        
+        policy = await prisma.leavePolicy.findFirst({
+          where: {
+            leaveType: leaveRequest.leaveType,
+            isActive: true,
+            employeeType: null
+          }
+        });
+        
+        if (policy) {
+          console.warn('⚠️ PolicyEnforcementService: Using legacy policy with null employeeType.');
+          console.warn('⚠️ PolicyEnforcementService: Admin should update this policy to set employeeType =', userEmployeeType);
+        }
+      }
+      
+      // If still no policy found, try without employeeType filter (for backward compatibility)
+      if (!policy) {
+        policy = await prisma.leavePolicy.findFirst({
+          where: {
+            leaveType: leaveRequest.leaveType,
+            isActive: true
+          }
+        });
+      }
 
       if (!policy) {
         result.violations.push({

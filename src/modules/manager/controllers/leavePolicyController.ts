@@ -22,56 +22,134 @@ export class LeavePolicyController {
         try {
           const manager = await prisma.user.findUnique({
             where: { id: managerId },
-            select: { employeeType: true }
+            select: { 
+              employeeType: true,
+              name: true,
+              email: true
+            }
           });
           managerEmployeeType = manager?.employeeType || null;
+          console.log('🔍 Manager getLeavePolicies: Manager ID:', managerId);
+          console.log('🔍 Manager getLeavePolicies: Manager Name:', manager?.name);
+          console.log('🔍 Manager getLeavePolicies: Manager Email:', manager?.email);
+          console.log('🔍 Manager getLeavePolicies: Manager employeeType:', managerEmployeeType || '❌ NOT SET');
+          
+          if (!managerEmployeeType) {
+            console.warn('⚠️ Manager getLeavePolicies: Manager has no employeeType assigned!');
+            console.warn('⚠️ Manager getLeavePolicies: Admin must assign employeeType (onshore/offshore) to this manager');
+          }
         } catch (error) {
+          console.error('❌ Manager getLeavePolicies: Error fetching manager employee type:', error);
           console.warn('⚠️ Could not fetch manager employee type, showing all policies');
         }
+      } else {
+        console.warn('⚠️ Manager getLeavePolicies: No managerId found in request');
       }
       
-      // Filter only active policies for managers
-      // IMPORTANT: Managers only see policies matching their exact employeeType
+      // Filter only active policies for managers with fallback
+      // IMPORTANT: First try exact match, then fallback to null policies for migration support
       // Handle case where migration hasn't been applied yet
-      let policies;
-      let total;
+      let policies: any[] = [];
+      let total: number = 0;
       try {
-        const whereClause: any = {
-          isActive: true
-        };
-        
-        // Filter by exact employeeType match if manager has one
         if (managerEmployeeType) {
-          whereClause.employeeType = managerEmployeeType;
-          console.log('🔍 Manager getLeavePolicies: Filtering by employeeType:', managerEmployeeType, '(exact match only)');
-        } else {
-          // If manager has no employeeType, show no policies (they need to be assigned a type)
-          whereClause.employeeType = '__NO_MATCH__'; // This will return 0 results
-          console.log('🔍 Manager getLeavePolicies: Manager has no employeeType, showing no policies');
-        }
-        
-        policies = await prisma.leavePolicy.findMany({
-          where: whereClause,
-          skip,
-          take: parseInt(limit as string),
-          orderBy: {
-            createdAt: 'desc'
+          // First try to get policies with exact employeeType match
+          policies = await prisma.leavePolicy.findMany({
+            where: {
+              isActive: true,
+              employeeType: managerEmployeeType
+            },
+            skip,
+            take: parseInt(limit as string),
+            orderBy: {
+              createdAt: 'desc'
+            }
+          });
+          
+          console.log('🔍 Manager getLeavePolicies: Filtering by employeeType:', managerEmployeeType);
+          console.log('🔍 Manager getLeavePolicies: Found policies with exact match:', policies.length);
+          
+          // Debug: Check what policies exist in database
+          const allPolicies = await prisma.leavePolicy.findMany({
+            where: { isActive: true },
+            select: {
+              id: true,
+              leaveType: true,
+              employeeType: true,
+              isActive: true
+            }
+          });
+          console.log('🔍 Manager getLeavePolicies: All active policies in database:', JSON.stringify(allPolicies, null, 2));
+          console.log('🔍 Manager getLeavePolicies: Policies matching employeeType:', JSON.stringify(policies.map(p => ({ id: p.id, leaveType: p.leaveType, employeeType: p.employeeType })), null, 2));
+          
+          // If no policies found with exact match, fallback to null policies (for migration support)
+          if (policies.length === 0) {
+            console.warn('⚠️ Manager getLeavePolicies: No policies found for employeeType:', managerEmployeeType);
+            console.warn('⚠️ Manager getLeavePolicies: Falling back to null employeeType policies (migration support)');
+            
+            policies = await prisma.leavePolicy.findMany({
+              where: {
+                isActive: true,
+                employeeType: null
+              },
+              skip,
+              take: parseInt(limit as string),
+              orderBy: {
+                createdAt: 'desc'
+              }
+            });
+            
+            console.log('🔍 Manager getLeavePolicies: Found null employeeType policies (fallback):', policies.length);
+            
+            if (policies.length > 0) {
+              console.warn('⚠️ Manager getLeavePolicies: Using legacy policies with null employeeType.');
+              console.warn('⚠️ Manager getLeavePolicies: Admin should update these policies to set employeeType =', managerEmployeeType);
+            }
           }
-        });
-
-        const countWhereClause: any = {
-          isActive: true
-        };
-        
-        if (managerEmployeeType) {
-          countWhereClause.employeeType = managerEmployeeType;
         } else {
-          countWhereClause.employeeType = '__NO_MATCH__';
+          // If manager has no employeeType, try null policies as fallback
+          console.warn('⚠️ Manager getLeavePolicies: Manager has no employeeType, trying null policies as fallback');
+          policies = await prisma.leavePolicy.findMany({
+            where: {
+              isActive: true,
+              employeeType: null
+            },
+            skip,
+            take: parseInt(limit as string),
+            orderBy: {
+              createdAt: 'desc'
+            }
+          });
         }
 
-        total = await prisma.leavePolicy.count({
-          where: countWhereClause
-        });
+        // Calculate total count (matching the same logic as policies query)
+        if (managerEmployeeType) {
+          // First count exact matches
+          total = await prisma.leavePolicy.count({
+            where: {
+              isActive: true,
+              employeeType: managerEmployeeType
+            }
+          });
+          
+          // If no exact matches, count null policies (fallback)
+          if (total === 0) {
+            total = await prisma.leavePolicy.count({
+              where: {
+                isActive: true,
+                employeeType: null
+              }
+            });
+          }
+        } else {
+          // If manager has no employeeType, count null policies
+          total = await prisma.leavePolicy.count({
+            where: {
+              isActive: true,
+              employeeType: null
+            }
+          });
+        }
       } catch (error: any) {
         // Fallback: if employeeType column doesn't exist yet, use raw query
         if (error.message && error.message.includes('employee_type')) {
@@ -154,6 +232,11 @@ export class LeavePolicyController {
         }
       }
 
+      // Final debug log before sending response
+      console.log('🔍 Manager getLeavePolicies: Final response - Total policies:', policies.length);
+      console.log('🔍 Manager getLeavePolicies: Final response - Policies:', JSON.stringify(policies.map(p => ({ id: p.id, leaveType: p.leaveType, employeeType: p.employeeType })), null, 2));
+      console.log('🔍 Manager getLeavePolicies: Final response - Manager employeeType:', managerEmployeeType || '❌ NOT SET');
+      
       const response: PaginatedResponse<any> = {
         success: true,
         message: 'Policies retrieved successfully',

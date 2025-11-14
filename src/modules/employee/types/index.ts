@@ -210,6 +210,9 @@ export interface LeaveHistory {
   reviewerName?: string;
   comments?: string;
   attachments?: string[];
+  isPaid?: boolean;
+  isHalfDay?: boolean;
+  halfDayPeriod?: string;
 }
 
 export interface LeaveHistoryFilters {

@@ -8,6 +8,7 @@ export interface BusinessRuleResult {
   message?: string;
   warnings?: string[];
   suggestions?: string[];
+  requiresUnpaidLeave?: boolean;
   salaryDeduction?: {
     days: number;
     amount: number;
@@ -434,23 +435,51 @@ export class BusinessRulesService {
         daysServedAfterProbation = daysServed;
       }
 
-      // Get active leave policies filtered by employeeType
-      // IMPORTANT: Onshore and Offshore policies are completely separate
-      // Only policies matching the employee's employeeType are used - no fallback to null policies
+      // Get active leave policies filtered by employeeType with fallback
+      // IMPORTANT: First try exact match, then fallback to null policies for migration support
       // Handle case where migration hasn't been applied yet
       let policies: any[] = [];
       try {
         if (employee.employeeType) {
-          // Strictly filter by exact employeeType match - no fallback to null
+          // First try to get policies with exact employeeType match
           policies = await prisma.leavePolicy.findMany({
             where: {
               isActive: true,
               employeeType: employee.employeeType as any
             } as any
           });
+          
+          console.log('🔍 BusinessRulesService calculateLeaveBalance: Filtering by employeeType:', employee.employeeType);
+          console.log('🔍 BusinessRulesService calculateLeaveBalance: Found policies with exact match:', policies.length);
+          
+          // If no policies found with exact match, fallback to null policies (for migration support)
+          if (policies.length === 0) {
+            console.warn('⚠️ BusinessRulesService calculateLeaveBalance: No policies found for employeeType:', employee.employeeType);
+            console.warn('⚠️ BusinessRulesService calculateLeaveBalance: Falling back to null employeeType policies (migration support)');
+            
+            policies = await prisma.leavePolicy.findMany({
+              where: {
+                isActive: true,
+                employeeType: null
+              } as any
+            });
+            
+            console.log('🔍 BusinessRulesService calculateLeaveBalance: Found null employeeType policies (fallback):', policies.length);
+            
+            if (policies.length > 0) {
+              console.warn('⚠️ BusinessRulesService calculateLeaveBalance: Using legacy policies with null employeeType.');
+              console.warn('⚠️ BusinessRulesService calculateLeaveBalance: Admin should update these policies to set employeeType =', employee.employeeType);
+            }
+          }
         } else {
-          // If employee has no employeeType, return empty (they need to be assigned an employeeType)
-          policies = [];
+          // If employee has no employeeType, try null policies as fallback
+          console.warn('⚠️ BusinessRulesService calculateLeaveBalance: Employee has no employeeType, trying null policies as fallback');
+          policies = await prisma.leavePolicy.findMany({
+            where: {
+              isActive: true,
+              employeeType: null
+            } as any
+          });
         }
       } catch (error: any) {
         // Fallback: if employeeType column doesn't exist yet, get all active policies
@@ -589,7 +618,8 @@ export class BusinessRulesService {
   /**
    * Validate leave balance - Enhanced to allow negative balance with salary deduction
    * Now with strict limit enforcement option
-   * Also checks probation status - employees in probation cannot use leave balance
+   * Note: Probation checks are handled in the employee/manager leave request services
+   * which have access to the actual leave dates and can check date overlap.
    */
   private static async validateLeaveBalance(
     userId: string,
@@ -597,26 +627,9 @@ export class BusinessRulesService {
     requestedDays: number,
     enforceStrictLimit: boolean = false
   ): Promise<BusinessRuleResult> {
-    // Get employee probation status
-    const employee = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        probationStatus: true,
-        probationStartDate: true,
-        probationEndDate: true,
-        probationCompletedAt: true
-      }
-    });
-
-    const isInProbation = employee?.probationStatus === 'active' || employee?.probationStatus === 'extended';
-    
-    // If employee is in probation, they cannot use leave balance
-    if (isInProbation) {
-      return {
-        isValid: false,
-        message: `You cannot use leave balance during your probation period. Leaves earned during probation are locked until you complete your probation. You can only take unpaid leave during probation.`
-      };
-    }
+    // Note: Probation checks are handled in the employee/manager leave request services
+    // which have access to the actual leave dates and can check date overlap.
+    // This method only validates leave balance availability.
 
     const balance = await this.calculateLeaveBalance(userId);
     const leaveBalance = balance[leaveType];

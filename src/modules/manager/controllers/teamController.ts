@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { TeamService } from '../services/teamService';
+import { EmployeeService } from '../../admin/services/employeeService';
 import { ApiResponse } from '../../../types';
 import { TeamFilters } from '../types';
 import prisma from '../../../lib/prisma';
@@ -974,6 +975,72 @@ export class TeamController {
       const response: ApiResponse = {
         success: false,
         message: 'Failed to reset team member password',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Get monthly paid and unpaid leave statistics for team members
+   */
+  static async getTeamMonthlyLeaveStats(req: Request, res: Response): Promise<void> {
+    try {
+      const managerId = (req as any).user?.id;
+      const department = req.query.department as string | undefined;
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+
+      if (!managerId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Manager ID is required',
+          error: 'Missing manager information'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      // Get all team member IDs for this manager
+      const teamMembers = await prisma.user.findMany({
+        where: {
+          managerId: managerId
+        },
+        select: {
+          id: true
+        }
+      });
+
+      const teamMemberIds = teamMembers.map(member => member.id);
+
+      if (teamMemberIds.length === 0) {
+        const response: ApiResponse = {
+          success: true,
+          message: 'Monthly leave statistics retrieved successfully',
+          data: []
+        };
+        res.status(200).json(response);
+        return;
+      }
+
+      // Get monthly stats for team members only
+      const stats = await EmployeeService.getMonthlyPaidUnpaidLeaveStats({
+        department,
+        year,
+        employeeIds: teamMemberIds
+      });
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Monthly paid/unpaid leave statistics retrieved successfully',
+        data: stats
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in getTeamMonthlyLeaveStats:', error);
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to retrieve monthly paid/unpaid leave statistics',
         error: error instanceof Error ? error.message : 'Unknown error'
       };
       res.status(500).json(response);

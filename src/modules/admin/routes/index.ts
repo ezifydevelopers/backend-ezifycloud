@@ -53,11 +53,22 @@ router.get('/employees',
   EmployeeController.getEmployees
 );
 
-// This route must come BEFORE /employees/:id routes to avoid route conflicts
+// These routes must come BEFORE /employees/:id routes to avoid route conflicts
+// Using exact path matching to prevent conflicts
 router.get('/employees/paid-unpaid-leaves', 
   EmployeeController.getPaidUnpaidLeaveStats
 );
 
+// Monthly leave stats route - must be before /employees/:id
+router.get('/employees/monthly-paid-unpaid-leaves', 
+  (req, res, next) => {
+    console.log('🔍 Route matched: /employees/monthly-paid-unpaid-leaves');
+    next();
+  },
+  EmployeeController.getMonthlyPaidUnpaidLeaveStats
+);
+
+// This route must come AFTER all specific /employees/* routes
 router.get('/employees/:id', 
   validateParams(adminSchemas.idParam),
   EmployeeController.getEmployeeById
@@ -87,6 +98,11 @@ router.get('/employees/:id/edit-history',
 router.delete('/employees/:id', 
   validateParams(adminSchemas.idParam),
   EmployeeController.deleteEmployee
+);
+
+router.delete('/employees/:id/permanent', 
+  validateParams(adminSchemas.idParam),
+  EmployeeController.permanentlyDeleteEmployee
 );
 
 router.patch('/employees/:id/toggle-status', 

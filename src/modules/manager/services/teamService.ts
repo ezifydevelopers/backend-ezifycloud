@@ -907,20 +907,50 @@ export class TeamService {
       const currentYear = year || new Date().getFullYear();
 
       // Validate leave type - find policy matching employeeType or generic (null)
-      const policy = await prisma.leavePolicy.findFirst({
-        where: {
-          leaveType,
-          OR: [
-            { employeeType: member?.employeeType },
-            { employeeType: null }
-          ],
-          isActive: true
-        },
-        orderBy: [
-          // Prefer specific policy over generic (null) policy
-          { employeeType: 'asc' }
-        ]
-      });
+      // First try to find policy with exact employeeType match
+      let policy = null;
+      
+      if (member?.employeeType) {
+        policy = await prisma.leavePolicy.findFirst({
+          where: {
+            leaveType,
+            employeeType: member.employeeType,
+            isActive: true
+          }
+        });
+        
+        console.log('🔍 Manager createLeaveRequestForMember: Looking for policy with employeeType:', member.employeeType);
+        console.log('🔍 Manager createLeaveRequestForMember: Found policy with exact match:', policy ? 'Yes' : 'No');
+        
+        // If no exact match found, fallback to null employeeType policies (for migration support)
+        if (!policy) {
+          console.warn('⚠️ Manager createLeaveRequestForMember: No policy found for employeeType:', member.employeeType);
+          console.warn('⚠️ Manager createLeaveRequestForMember: Falling back to null employeeType policies (migration support)');
+          
+          policy = await prisma.leavePolicy.findFirst({
+            where: {
+              leaveType,
+              employeeType: null,
+              isActive: true
+            }
+          });
+          
+          if (policy) {
+            console.warn('⚠️ Manager createLeaveRequestForMember: Using legacy policy with null employeeType.');
+            console.warn('⚠️ Manager createLeaveRequestForMember: Admin should update this policy to set employeeType =', member.employeeType);
+          }
+        }
+      } else {
+        // If member has no employeeType, try null policies as fallback
+        console.warn('⚠️ Manager createLeaveRequestForMember: Member has no employeeType, trying null policies as fallback');
+        policy = await prisma.leavePolicy.findFirst({
+          where: {
+            leaveType,
+            employeeType: null,
+            isActive: true
+          }
+        });
+      }
 
       if (!policy) {
         throw new Error(`No leave policy found for ${leaveType} leave`);
@@ -1072,24 +1102,69 @@ export class TeamService {
       const daysServed = this.calculateDaysServed(joinDate, currentDate);
       
       // Get active leave policies from database filtered by employeeType
-      // Policies with employeeType null apply to both onshore and offshore
-      // Handle case where migration hasn't been applied yet
-      let leavePolicies;
+      // IMPORTANT: Strictly filter by employeeType - no fallback to null policies
+      // Employees should ONLY see policies that match their employeeType (onshore/offshore)
+      // Get active leave policies filtered by employeeType with fallback
+      // IMPORTANT: First try exact match, then fallback to null policies for migration support
+      let leavePolicies: any[] = [];
+      
       try {
-        leavePolicies = await prisma.leavePolicy.findMany({
-          where: {
-            isActive: true,
-            OR: [
-              { employeeType: employee.employeeType as any }, // Policy specific to employee type
-              { employeeType: null as any } // Policy applies to both types
-            ]
-          } as any,
-          select: {
-            leaveType: true,
-            totalDaysPerYear: true,
-            employeeType: true
-          } as any
-        });
+        if (employee.employeeType) {
+          // First try to get policies with exact employeeType match
+          leavePolicies = await prisma.leavePolicy.findMany({
+            where: {
+              isActive: true,
+              employeeType: employee.employeeType
+            },
+            select: {
+              leaveType: true,
+              totalDaysPerYear: true,
+              employeeType: true
+            } as any
+          });
+          
+          console.log('🔍 Manager getMemberLeaveBalance: Filtering by employeeType:', employee.employeeType);
+          console.log('🔍 Manager getMemberLeaveBalance: Found policies with exact match:', leavePolicies.length);
+          
+          // If no policies found with exact match, fallback to null policies (for migration support)
+          if (leavePolicies.length === 0) {
+            console.warn('⚠️ Manager getMemberLeaveBalance: No policies found for employeeType:', employee.employeeType);
+            console.warn('⚠️ Manager getMemberLeaveBalance: Falling back to null employeeType policies (migration support)');
+            
+            leavePolicies = await prisma.leavePolicy.findMany({
+              where: {
+                isActive: true,
+                employeeType: null
+              },
+              select: {
+                leaveType: true,
+                totalDaysPerYear: true,
+                employeeType: true
+              } as any
+            });
+            
+            console.log('🔍 Manager getMemberLeaveBalance: Found null employeeType policies (fallback):', leavePolicies.length);
+            
+            if (leavePolicies.length > 0) {
+              console.warn('⚠️ Manager getMemberLeaveBalance: Using legacy policies with null employeeType.');
+              console.warn('⚠️ Manager getMemberLeaveBalance: Admin should update these policies to set employeeType =', employee.employeeType);
+            }
+          }
+        } else {
+          // If employee has no employeeType, try null policies as fallback
+          console.warn('⚠️ Manager getMemberLeaveBalance: Employee has no employeeType, trying null policies as fallback');
+          leavePolicies = await prisma.leavePolicy.findMany({
+            where: {
+              isActive: true,
+              employeeType: null
+            },
+            select: {
+              leaveType: true,
+              totalDaysPerYear: true,
+              employeeType: true
+            } as any
+          });
+        }
       } catch (error: any) {
         // Fallback: if employeeType column doesn't exist yet, get all active policies
         console.warn('⚠️ employeeType column not found, using all active policies. Please apply migration.');

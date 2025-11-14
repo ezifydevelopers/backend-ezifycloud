@@ -33,98 +33,98 @@ export class LeavePolicyController {
       // IMPORTANT: Employees see policies matching their employeeType
       // TEMPORARY: During migration, also show null policies if no exact matches exist
       // Handle case where migration hasn't been applied yet
-      let policies;
-      let total;
+      let policies: any[] = [];
+      let total: number = 0;
       try {
-        const whereClause: any = {
-          isActive: true
-        };
-        
-        // Check if any policies exist with the employee's employeeType
+        // IMPORTANT: Filter by employeeType with fallback to null policies for migration support
+        // Employees should see policies that match their employeeType (onshore/offshore)
+        // If no exact match, fallback to null policies (for backward compatibility during migration)
         if (employeeType) {
-          const countWithType = await prisma.leavePolicy.count({
-            where: { 
+          // First try to get policies with exact employeeType match
+          policies = await prisma.leavePolicy.findMany({
+            where: {
               isActive: true,
-              employeeType: employeeType 
+              employeeType: employeeType
+            },
+            skip,
+            take: parseInt(limit as string),
+            orderBy: {
+              createdAt: 'desc'
             }
-          }).catch(() => 0);
-          const countWithNull = await prisma.leavePolicy.count({
-            where: { 
-              isActive: true,
-              employeeType: null 
-            }
-          }).catch(() => 0);
-          
-          console.log('🔍 Employee getLeavePolicies: Policy counts:', {
-            withEmployeeType: countWithType,
-            withNullType: countWithNull,
-            employeeType: employeeType
           });
           
-          if (countWithType > 0) {
-            // Show only policies with exact employeeType match
-            whereClause.employeeType = employeeType;
-            console.log('🔍 Employee getLeavePolicies: Filtering by employeeType:', employeeType, '(exact match only)');
-          } else if (countWithNull > 0) {
-            // TEMPORARY: If no policies with requested type exist, show null policies
-            // This allows employees to see policies during migration
-            whereClause.employeeType = null;
-            console.log('⚠️ Employee getLeavePolicies: No policies found with employeeType:', employeeType);
-            console.log('⚠️ Employee getLeavePolicies: Showing null policies temporarily for migration');
-          } else {
-            // No policies at all
-            whereClause.employeeType = employeeType;
-            console.log('🔍 Employee getLeavePolicies: No policies exist. Filtering by employeeType:', employeeType);
-          }
-        } else {
-          // If employee has no employeeType set, show null policies temporarily
-          // This allows employees without employeeType to still request leave during migration
-          whereClause.employeeType = null;
-          console.log('⚠️ Employee getLeavePolicies: Employee has no employeeType, showing null policies temporarily');
-        }
-        
-        policies = await prisma.leavePolicy.findMany({
-          where: whereClause,
-          skip,
-          take: parseInt(limit as string),
-          orderBy: {
-            createdAt: 'desc'
-          }
-        });
-
-        const countWhereClause: any = {
-          isActive: true
-        };
-        
-        // Use the same logic for count
-        if (employeeType) {
-          const countWithType = await prisma.leavePolicy.count({
-            where: { 
-              isActive: true,
-              employeeType: employeeType 
-            }
-          }).catch(() => 0);
-          const countWithNull = await prisma.leavePolicy.count({
-            where: { 
-              isActive: true,
-              employeeType: null 
-            }
-          }).catch(() => 0);
+          console.log('🔍 Employee getLeavePolicies: Filtering by employeeType:', employeeType);
+          console.log('🔍 Employee getLeavePolicies: Found policies with exact match:', policies.length);
           
-          if (countWithType > 0) {
-            countWhereClause.employeeType = employeeType;
-          } else if (countWithNull > 0) {
-            countWhereClause.employeeType = null;
-          } else {
-            countWhereClause.employeeType = employeeType;
+          // If no policies found with exact match, fallback to null policies (for migration support)
+          if (policies.length === 0) {
+            console.warn('⚠️ Employee getLeavePolicies: No policies found for employeeType:', employeeType);
+            console.warn('⚠️ Employee getLeavePolicies: Falling back to null employeeType policies (migration support)');
+            
+            policies = await prisma.leavePolicy.findMany({
+              where: {
+                isActive: true,
+                employeeType: null
+              },
+              skip,
+              take: parseInt(limit as string),
+              orderBy: {
+                createdAt: 'desc'
+              }
+            });
+            
+            console.log('🔍 Employee getLeavePolicies: Found null employeeType policies (fallback):', policies.length);
+            
+            if (policies.length > 0) {
+              console.warn('⚠️ Employee getLeavePolicies: Using legacy policies with null employeeType.');
+              console.warn('⚠️ Employee getLeavePolicies: Admin should update these policies to set employeeType =', employeeType);
+            }
           }
+          
+          console.log('🔍 Employee getLeavePolicies: Employee ID:', employeeId);
         } else {
-          countWhereClause.employeeType = null;
+          // If employee has no employeeType set, return empty (they need to be assigned an employeeType)
+          console.log('⚠️ Employee getLeavePolicies: Employee has no employeeType, returning empty result. Employee needs to be assigned an employeeType.');
+          console.log('⚠️ Employee getLeavePolicies: Employee ID:', employeeId);
+          policies = [];
         }
         
-        total = await prisma.leavePolicy.count({
-          where: countWhereClause
+        // Debug: Check what policies exist in database
+        const allPolicies = await prisma.leavePolicy.findMany({
+          where: { isActive: true },
+          select: {
+            id: true,
+            leaveType: true,
+            employeeType: true,
+            isActive: true
+          }
         });
+        console.log('🔍 Employee getLeavePolicies: All active policies in database:', JSON.stringify(allPolicies, null, 2));
+        console.log('🔍 Employee getLeavePolicies: Final policies returned:', JSON.stringify(policies.map(p => ({ id: p.id, leaveType: p.leaveType, employeeType: p.employeeType })), null, 2));
+
+        // Calculate total count (matching the same logic as policies query)
+        if (employeeType) {
+          // First count exact matches
+          total = await prisma.leavePolicy.count({
+            where: {
+              isActive: true,
+              employeeType: employeeType
+            }
+          });
+          
+          // If no exact matches, count null policies (fallback)
+          if (total === 0) {
+            total = await prisma.leavePolicy.count({
+              where: {
+                isActive: true,
+                employeeType: null
+              }
+            });
+          }
+        } else {
+          // If employee has no employeeType, return 0 count
+          total = 0;
+        }
       } catch (error: any) {
         // Fallback: if employeeType column doesn't exist yet, use raw query
         if (error.message && error.message.includes('employee_type')) {
@@ -151,40 +151,20 @@ export class LeavePolicyController {
           let paramIndex = 1;
           
           // Add employeeType filter if column exists
-          // TEMPORARY: During migration, show null policies if no exact matches exist
+          // IMPORTANT: Strictly filter by employeeType - no fallback to null policies
           if (hasEmployeeTypeColumn) {
             if (employeeType) {
-              // Check if any policies exist with the employee's employeeType
-              const countWithTypeResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
-                `SELECT COUNT(*)::int as count FROM leave_policies WHERE is_active = true AND employee_type = $1`,
-                employeeType
-              ).catch(() => [{ count: BigInt(0) }]);
-              const countWithType = Number(countWithTypeResult[0]?.count || 0);
-              
-              const countWithNullResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
-                `SELECT COUNT(*)::int as count FROM leave_policies WHERE is_active = true AND employee_type IS NULL`
-              ).catch(() => [{ count: BigInt(0) }]);
-              const countWithNull = Number(countWithNullResult[0]?.count || 0);
-              
-              if (countWithType > 0) {
-                // Show only policies with exact employeeType match
-                whereClause += ` AND employee_type = $${paramIndex}`;
-                queryParams.push(employeeType);
-                paramIndex++;
-              } else if (countWithNull > 0) {
-                // TEMPORARY: Show null policies if no policies with requested type exist
-                whereClause += ` AND employee_type IS NULL`;
-                console.log('⚠️ Raw SQL: Showing null policies temporarily for migration');
-              } else {
-                // No policies at all, filter by requested type (will return 0)
-                whereClause += ` AND employee_type = $${paramIndex}`;
-                queryParams.push(employeeType);
-                paramIndex++;
-              }
+              // Show only policies with exact employeeType match
+              whereClause += ` AND employee_type = $${paramIndex}`;
+              queryParams.push(employeeType);
+              paramIndex++;
+              console.log('🔍 Raw SQL: Filtering by employeeType:', employeeType, '(exact match only, no fallback)');
             } else {
-              // If employee has no employeeType, show null policies temporarily
-              whereClause += ` AND employee_type IS NULL`;
-              console.log('⚠️ Raw SQL: Employee has no employeeType, showing null policies temporarily');
+              // If employee has no employeeType, return no results (they need to be assigned an employeeType)
+              whereClause += ` AND employee_type = $${paramIndex}`;
+              queryParams.push('__NO_TYPE__'); // This will return no results
+              paramIndex++;
+              console.log('⚠️ Raw SQL: Employee has no employeeType, returning empty result.');
             }
           }
           
@@ -213,34 +193,15 @@ export class LeavePolicyController {
           
           let countWhereClause = 'is_active = true';
           const countParams: any[] = [];
-          // Match the same logic as the main query
+          // Match the same strict logic as the main query
           if (hasEmployeeTypeColumn) {
             if (employeeType) {
-              // Check if any policies exist with the employee's employeeType
-              const countWithTypeResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
-                `SELECT COUNT(*)::int as count FROM leave_policies WHERE is_active = true AND employee_type = $1`,
-                employeeType
-              ).catch(() => [{ count: BigInt(0) }]);
-              const countWithType = Number(countWithTypeResult[0]?.count || 0);
-              
-              const countWithNullResult = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
-                `SELECT COUNT(*)::int as count FROM leave_policies WHERE is_active = true AND employee_type IS NULL`
-              ).catch(() => [{ count: BigInt(0) }]);
-              const countWithNull = Number(countWithNullResult[0]?.count || 0);
-              
-              if (countWithType > 0) {
-                countWhereClause += ' AND employee_type = $1';
-                countParams.push(employeeType);
-              } else if (countWithNull > 0) {
-                // TEMPORARY: Count null policies if no policies with requested type exist
-                countWhereClause += ' AND employee_type IS NULL';
-              } else {
-                countWhereClause += ' AND employee_type = $1';
-                countParams.push(employeeType);
-              }
+              countWhereClause += ' AND employee_type = $1';
+              countParams.push(employeeType);
             } else {
-              // If employee has no employeeType, count null policies
-              countWhereClause += ' AND employee_type IS NULL';
+              // If employee has no employeeType, return 0 count
+              countWhereClause += ' AND employee_type = $1';
+              countParams.push('__NO_TYPE__'); // This will return 0
             }
           }
           
