@@ -3,42 +3,46 @@ name: Deploy Backend
 on:
   push:
     branches:
-      - main       # deploy to production
-      - staging    
+      - main
+      - develop
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          script: |
-            cd /home/staging/apps/staging/trainportalbackend
-            git fetch --all
-            git reset --hard origin/main
-            git pull origin main
-            npm install
-            pm2 restart trainportalbackend || pm2 start src/server.js --name trainportalbackend
-
-      # Production deployment
-      - name: Deploy to Production VPS
-        if: github.ref == 'refs/heads/main'
+      - name: Deploy to Server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USERNAME }}
           key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
           script: |
-            cd /home/dev/apps/trainportalbackend
+            cd ~/apps/backend-ezifycloud
+            
+            # Pull latest changes
             git fetch --all
             git reset --hard origin/main
             git pull origin main
-            npm install
-            pm2 restart trainportalbackend || pm2 start src/server.js --name trainportalbackend
+            
+            # Install dependencies
+            npm ci
+            
+            # Generate Prisma Client
+            npx prisma generate
+            
+            # Run database migrations
+            npx prisma migrate deploy
+            
+            # Build TypeScript
+            npm run build
+            
+            # Restart application with PM2
+            pm2 restart backend-ezifycloud || pm2 start dist/server.js --name backend-ezifycloud
+            
+            # Save PM2 process list
+            pm2 save

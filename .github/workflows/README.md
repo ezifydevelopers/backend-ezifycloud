@@ -1,120 +1,53 @@
-# GitHub Actions Workflows
+# Backend Deployment Workflow
 
-This directory contains GitHub Actions workflows for CI/CD of the Ezify Cloud application.
+This workflow automatically deploys the backend application to the server when changes are pushed to `main` or `develop` branches.
 
-**Note:** These workflow files must be in `.github/workflows/` at the repository root for GitHub Actions to recognize them. They automatically trigger when changes are made to the `frontend-ezifycloud/` or `backend-ezifycloud/` directories.
+## Server Configuration
 
-## Workflows
+- **Host**: `srv990936`
+- **Username**: `leavesystem`
+- **Deployment Path**: `~/apps/backend-ezifycloud` (expands to `/home/leavesystem/apps/backend-ezifycloud`)
 
-### 1. `ci.yml` - Continuous Integration
-Runs on every push and pull request to `main` and `develop` branches.
-- **Frontend CI**: Lints and builds the frontend application
-- **Backend CI**: Lints, builds, and tests the backend application with a PostgreSQL database
+## Required GitHub Secrets
 
-### 2. `frontend-deploy.yml` - Frontend Deployment
-Deploys the frontend application when changes are pushed to `main` or `develop` branches.
-- Builds the frontend application
-- Supports multiple deployment platforms:
-  - **Vercel** (default, if configured)
-  - Netlify
-  - AWS S3 + CloudFront
-  - GitHub Pages
+These secrets should already be configured in your GitHub repository (Settings → Secrets → Actions):
 
-### 3. `backend-deploy.yml` - Backend Deployment
-Deploys the backend application when changes are pushed to `main` or `develop` branches.
-- Builds and tests the backend application
-- Runs database migrations
-- Supports multiple deployment platforms:
-  - **AWS Elastic Beanstalk** (default, if configured)
-  - Heroku
-  - Railway
-  - DigitalOcean App Platform
-  - Custom server via SSH
-  - Docker registry
-
-## Setup Instructions
-
-### Required GitHub Secrets
-
-#### Frontend Deployment (Vercel)
 ```
-VERCEL_TOKEN=your_vercel_token
-VERCEL_ORG_ID=your_org_id
-VERCEL_PROJECT_ID=your_project_id
-VITE_API_URL=https://your-api-url.com
+PROD_HOST=srv990936
+PROD_USERNAME=leavesystem
+SSH_KEY=your_private_ssh_key_content
+SSH_PORT=22 (optional, defaults to 22)
 ```
 
-#### Frontend Deployment (Netlify)
-```
-NETLIFY_AUTH_TOKEN=your_netlify_token
-NETLIFY_SITE_ID=your_site_id
-```
+## Deployment Process
 
-#### Frontend Deployment (AWS)
-```
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_REGION=us-east-1
-S3_BUCKET_NAME=your-bucket-name
-CLOUDFRONT_DISTRIBUTION_ID=your_distribution_id
-```
+When you push to `main` or `develop` branch, the workflow will:
 
-#### Backend Deployment (AWS Elastic Beanstalk)
-```
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_REGION=us-east-1
-EB_APPLICATION_NAME=ezify-backend
-EB_ENVIRONMENT_NAME=ezify-backend-prod
-```
+1. **Checkout** the latest code
+2. **SSH into the server** (`srv990936`)
+3. **Navigate** to `~/apps/backend-ezifycloud`
+4. **Pull** latest changes from GitHub
+5. **Install** dependencies (`npm ci`)
+6. **Generate** Prisma Client (`npx prisma generate`)
+7. **Run** database migrations (`npx prisma migrate deploy`)
+8. **Build** TypeScript code (`npm run build`)
+9. **Restart** the application with PM2 (`pm2 restart backend-ezifycloud`)
 
-#### Backend Deployment (Heroku)
-```
-HEROKU_API_KEY=your_heroku_api_key
-HEROKU_APP_NAME=your-app-name
-HEROKU_EMAIL=your-email@example.com
-```
+## PM2 Process Name
 
-#### Backend Deployment (Custom Server)
-```
-SSH_PRIVATE_KEY=your_ssh_private_key
-SSH_USER=deploy
-SSH_HOST=your-server-ip
-```
+The application runs as `backend-ezifycloud` in PM2. Make sure this matches your PM2 configuration on the server.
 
-### How to Add Secrets
+## Manual Deployment
 
-1. Go to your GitHub repository
-2. Navigate to **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret**
-4. Add each secret with its corresponding value
+You can also trigger the deployment manually:
+1. Go to **Actions** tab in GitHub
+2. Select **Deploy Backend** workflow
+3. Click **Run workflow**
+4. Choose the branch and click **Run workflow**
 
-### Enabling Deployment
+## Troubleshooting
 
-1. **Choose your deployment platform** from the options in the workflow files
-2. **Uncomment the relevant deployment section** in the workflow file
-3. **Comment out or remove other deployment options** you're not using
-4. **Add the required secrets** to your GitHub repository
-5. **Push to main or develop branch** to trigger deployment
-
-### Workflow Triggers
-
-- **Push to main/develop**: Triggers build, test, and deploy
-- **Pull Request**: Triggers build and test only (no deployment)
-- **Manual trigger**: Use `workflow_dispatch` to manually trigger workflows
-
-### Customization
-
-You can customize the workflows by:
-- Changing the Node.js version in the `NODE_VERSION` env variable
-- Adding additional build steps
-- Modifying deployment configurations
-- Adding environment-specific deployments (staging, production)
-
-## Notes
-
-- The workflows use `npm ci` for faster, reliable builds
-- Build artifacts are stored for 7 days
-- Database migrations run automatically during backend deployment
-- Tests are set to `continue-on-error: true` to not block deployments if tests fail (you can change this)
-
+- **SSH Connection Failed**: Check that `SSH_PRIVATE_KEY` secret is correctly set
+- **PM2 Not Found**: Install PM2 on the server: `npm install -g pm2`
+- **Database Migration Failed**: Check database connection and credentials
+- **Build Failed**: Check Node.js version on server (should be 18.x or higher)
