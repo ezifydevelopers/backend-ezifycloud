@@ -1,0 +1,203 @@
+name: Backend Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - master
+    paths:
+      - 'backend-ezifycloud/**'
+      - '.github/workflows/backend-deploy.yml'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+      - master
+    paths:
+      - 'backend-ezifycloud/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  NODE_VERSION: '18.x'
+
+jobs:
+  build-and-test:
+    name: Build and Test Backend
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./backend-ezifycloud
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend-ezifycloud/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Prisma
+        run: npx prisma generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+
+      - name: Run linter
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          JWT_SECRET: test-secret-key
+          NODE_ENV: test
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build
+          path: |
+            backend-ezifycloud/dist
+            backend-ezifycloud/package.json
+            backend-ezifycloud/package-lock.json
+            backend-ezifycloud/prisma
+          retention-days: 7
+
+  deploy:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-build
+          path: backend-ezifycloud
+
+      # Option 1: Deploy to AWS Elastic Beanstalk
+      - name: Deploy to AWS Elastic Beanstalk
+        if: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        uses: einaregilsson/beanstalk-deploy@v22
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: ${{ secrets.EB_APPLICATION_NAME }}
+          environment_name: ${{ secrets.EB_ENVIRONMENT_NAME }}
+          version_label: ${{ github.sha }}
+          region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          deployment_package: backend-ezifycloud
+
+      # Option 2: Deploy to Heroku (uncomment if using Heroku)
+      # - name: Deploy to Heroku
+      #   if: ${{ secrets.HEROKU_API_KEY }}
+      #   uses: akhileshns/heroku-deploy@v3.13.15
+      #   with:
+      #     heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+      #     heroku_app_name: ${{ secrets.HEROKU_APP_NAME }}
+      #     heroku_email: ${{ secrets.HEROKU_EMAIL }}
+      #     appdir: "backend-ezifycloud"
+      #     procfile: "web: node dist/server.js"
+
+      # Option 3: Deploy to Railway (uncomment if using Railway)
+      # - name: Deploy to Railway
+      #   if: ${{ secrets.RAILWAY_TOKEN }}
+      #   uses: bervProject/railway-deploy@v0.1.0
+      #   with:
+      #     railway_token: ${{ secrets.RAILWAY_TOKEN }}
+      #     service: ${{ secrets.RAILWAY_SERVICE_ID }}
+      #     detach: false
+
+      # Option 4: Deploy to DigitalOcean App Platform (uncomment if using DO)
+      # - name: Deploy to DigitalOcean
+      #   if: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      #   uses: digitalocean/app_action@v1
+      #   with:
+      #     app_name: ${{ secrets.DO_APP_NAME }}
+      #     token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      # Option 5: Deploy to custom server via SSH (uncomment if using custom server)
+      # - name: Setup SSH
+      #   uses: webfactory/ssh-agent@v0.9.0
+      #   with:
+      #     ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      #
+      # - name: Deploy to server
+      #   run: |
+      #     ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+      #       cd /path/to/backend
+      #       git pull origin main
+      #       npm ci
+      #       npx prisma generate
+      #       npx prisma migrate deploy
+      #       npm run build
+      #       pm2 restart backend || pm2 start dist/server.js --name backend
+      #     EOF
+
+      # Option 6: Deploy to Docker and push to registry (uncomment if using Docker)
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v3
+      #
+      # - name: Login to Docker Hub
+      #   if: ${{ secrets.DOCKER_USERNAME }}
+      #   uses: docker/login-action@v3
+      #   with:
+      #     username: ${{ secrets.DOCKER_USERNAME }}
+      #     password: ${{ secrets.DOCKER_PASSWORD }}
+      #
+      # - name: Build and push Docker image
+      #   if: ${{ secrets.DOCKER_USERNAME }}
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: ./backend-ezifycloud
+      #     push: true
+      #     tags: ${{ secrets.DOCKER_USERNAME }}/ezify-backend:${{ github.sha }},${{ secrets.DOCKER_USERNAME }}/ezify-backend:latest
+      #     cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/ezify-backend:buildcache
+      #     cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/ezify-backend:buildcache,mode=max
+
