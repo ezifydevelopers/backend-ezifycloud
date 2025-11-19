@@ -42,7 +42,7 @@ jobs:
             npm run build
             
             # Restart application with PM2
-            pm2 restart backend-ezifycloud || pm2 start dist/server.js --name backend-ezifycloud
+            pm2 restart backend || pm2 start dist/server.js --name backend
             
             # Save PM2 process list
             pm2 save
