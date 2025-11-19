@@ -13,17 +13,43 @@ if [ ! -f "prisma/schema.prisma" ]; then
     exit 1
 fi
 
-echo "📦 Step 1: Generating Prisma Client..."
+echo "📋 Step 1: Checking migration status..."
+MIGRATION_STATUS=$(npx prisma migrate status 2>&1)
+
+if echo "$MIGRATION_STATUS" | grep -q "failed migrations"; then
+    echo "⚠️  Found failed migrations. Attempting to resolve..."
+    echo ""
+    
+    # Try to find the failed migration name
+    FAILED_MIGRATION=$(echo "$MIGRATION_STATUS" | grep -oP 'migration \K[0-9_]+' | head -1)
+    
+    if [ -n "$FAILED_MIGRATION" ]; then
+        echo "🔓 Resolving failed migration: $FAILED_MIGRATION"
+        npx prisma migrate resolve --rolled-back "$FAILED_MIGRATION" || {
+            echo "⚠️  Could not resolve migration automatically. Trying to mark as applied..."
+            npx prisma migrate resolve --applied "$FAILED_MIGRATION" || {
+                echo "❌ Could not resolve migration. Please check RESOLVE_MIGRATION_ISSUE.md for manual steps."
+                exit 1
+            }
+        }
+    else
+        echo "⚠️  Could not identify failed migration. Please check RESOLVE_MIGRATION_ISSUE.md for manual steps."
+        exit 1
+    fi
+fi
+
+echo ""
+echo "📦 Step 2: Generating Prisma Client..."
 npx prisma generate
 
 echo ""
-echo "🗄️  Step 2: Running database migration..."
+echo "🗄️  Step 3: Running database migration..."
 npx prisma migrate deploy
 
 echo ""
 echo "✅ Migration completed!"
 echo ""
-echo "🔄 Step 3: Restarting backend with PM2..."
+echo "🔄 Step 4: Restarting backend with PM2..."
 pm2 restart backend
 
 echo ""
