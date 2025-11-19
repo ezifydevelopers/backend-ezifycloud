@@ -317,6 +317,97 @@ export class ApprovalService {
   }
 
   /**
+   * Update leave request paid/unpaid status (for approved requests only)
+   */
+  static async updateLeaveRequestPaidStatus(
+    managerId: string,
+    requestId: string,
+    isPaid: boolean,
+    comments?: string
+  ): Promise<LeaveApproval> {
+    try {
+      // Check if request belongs to manager's team
+      const existingRequest = await prisma.leaveRequest.findFirst({
+        where: { 
+          id: requestId,
+          user: { managerId: managerId }
+        }
+      });
+
+      if (!existingRequest) {
+        throw new Error('Leave request not found or not under your management');
+      }
+
+      if (existingRequest.status !== 'approved') {
+        throw new Error('Can only update paid/unpaid status for approved leave requests');
+      }
+
+      // Update leave request
+      const request = await prisma.leaveRequest.update({
+        where: { id: requestId },
+        data: {
+          isPaid,
+          comments: comments || existingRequest.comments,
+          updatedAt: new Date()
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              department: true,
+              profilePicture: true
+            }
+          },
+          approver: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      });
+
+      return {
+        id: request.id,
+        employeeId: request.userId,
+        employee: {
+          id: request.user.id,
+          name: request.user.name,
+          email: request.user.email,
+          department: request.user.department || 'Unassigned',
+          position: 'Employee',
+          avatar: request.user.profilePicture || undefined
+        },
+        leaveType: request.leaveType,
+        startDate: request.startDate,
+        endDate: request.endDate,
+        days: Number(request.totalDays),
+        reason: request.reason,
+        status: request.status as 'pending' | 'approved' | 'rejected',
+        priority: this.determinePriority(request),
+        emergencyContact: undefined,
+        workHandover: undefined,
+        submittedAt: request.submittedAt,
+        reviewedAt: request.approvedAt || undefined,
+        reviewedBy: request.approvedBy || undefined,
+        reviewerName: request.approver?.name,
+        comments: request.comments || undefined,
+        attachments: [],
+        createdAt: request.createdAt,
+        updatedAt: request.updatedAt
+      };
+    } catch (error) {
+      console.error('Error updating leave request paid status:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to update leave request paid status');
+    }
+  }
+
+  /**
    * Process bulk approval actions
    */
   static async processBulkApprovalAction(

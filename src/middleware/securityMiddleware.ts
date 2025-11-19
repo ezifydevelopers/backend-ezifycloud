@@ -34,10 +34,20 @@ export const securityHeaders = (
   res: Response,
   next: NextFunction
 ): void => {
-  // Content Security Policy
+  // Get allowed origins from config
+  const allowedOrigins = APP_CONFIG.SERVER.CORS_ORIGINS;
+  const origin = req.headers.origin;
+  
+  // Set CORS headers if origin is allowed
+  if (origin && (allowedOrigins.includes(origin) || APP_CONFIG.SERVER.NODE_ENV === 'development')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
+  // Content Security Policy - relaxed for API
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self';"
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' *;"
   );
 
   // X-Content-Type-Options

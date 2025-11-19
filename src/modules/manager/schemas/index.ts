@@ -93,6 +93,11 @@ export const bulkApprovalActionSchema = Joi.object({
   comments: Joi.string().optional().allow(''),
 });
 
+export const updateLeaveRequestPaidStatusSchema = Joi.object({
+  isPaid: Joi.boolean().required(),
+  comments: Joi.string().optional().allow(''),
+});
+
 export const updateApprovalStatusSchema = Joi.object({
   status: Joi.string().valid('approved', 'rejected').required(),
   comments: Joi.string().optional().allow(''),
@@ -371,6 +376,7 @@ export const managerSchemas = {
   approvalFilters: approvalFiltersSchema,
   approvalStats: approvalStatsSchema,
   approvalAction: approvalActionSchema,
+  updateLeaveRequestPaidStatus: updateLeaveRequestPaidStatusSchema,
   bulkApprovalAction: bulkApprovalActionSchema,
   updateApprovalStatus: updateApprovalStatusSchema,
   adjustLeaveBalance: adjustLeaveBalanceSchema,

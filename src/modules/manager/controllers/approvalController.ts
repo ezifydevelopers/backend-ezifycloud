@@ -184,6 +184,72 @@ export class ApprovalController {
   }
 
   /**
+   * Update leave request paid/unpaid status
+   */
+  static async updateLeaveRequestPaidStatus(req: Request, res: Response): Promise<void> {
+    try {
+      const managerId = (req as any).user?.id;
+      const { id } = req.params;
+      const { isPaid, comments } = req.body;
+
+      if (!managerId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Manager ID is required',
+          error: 'Missing manager information'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Leave request ID is required',
+          error: 'Missing leave request ID'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (typeof isPaid !== 'boolean') {
+        const response: ApiResponse = {
+          success: false,
+          message: 'isPaid must be a boolean value',
+          error: 'Invalid isPaid value'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const approval = await ApprovalService.updateLeaveRequestPaidStatus(
+        managerId,
+        id,
+        isPaid,
+        comments
+      );
+
+      const response: ApiResponse = {
+        success: true,
+        message: `Leave request updated to ${isPaid ? 'paid' : 'unpaid'} successfully`,
+        data: approval
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in updateLeaveRequestPaidStatus:', error);
+      
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to update leave request paid status',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+
+      res.status(400).json(response);
+    }
+  }
+
+  /**
    * Process bulk approval actions
    */
   static async processBulkApprovalAction(req: Request, res: Response): Promise<void> {

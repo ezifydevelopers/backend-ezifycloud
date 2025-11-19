@@ -117,6 +117,7 @@ export class EmployeeService {
             leaveBalance,
             avatar: emp.profilePicture || undefined,
             bio: undefined, // Not in schema
+            employeeId: emp.employeeId || undefined,
             probationStatus: emp.probationStatus as 'active' | 'completed' | 'extended' | 'terminated' | null,
             probationStartDate: emp.probationStartDate,
             probationEndDate: emp.probationEndDate,
@@ -378,6 +379,7 @@ export class EmployeeService {
     name?: string;
     email?: string;
     phone?: string;
+    employeeId?: string | null;
     department?: string;
     position?: string;
     role?: 'admin' | 'manager' | 'employee';
@@ -480,12 +482,28 @@ export class EmployeeService {
         }
       });
 
+      // Check if employeeId is being updated and if it's unique
+      if (updateData.employeeId !== undefined) {
+        if (updateData.employeeId && updateData.employeeId.trim() !== '') {
+          const existingEmployee = await prisma.user.findFirst({
+            where: {
+              employeeId: updateData.employeeId,
+              id: { not: id } // Exclude current employee
+            }
+          });
+          if (existingEmployee) {
+            throw new Error('Employee ID already exists. Please use a different Employee ID.');
+          }
+        }
+      }
+
       // Update employee
       const employee = await prisma.user.update({
         where: { id },
         data: {
           name: updateData.name,
           email: updateData.email,
+          employeeId: updateData.employeeId !== undefined ? (updateData.employeeId && updateData.employeeId.trim() !== '' ? updateData.employeeId.trim() : null) : undefined,
           role: updateData.role,
           department: updateData.department,
           managerId: updateData.managerId,
@@ -1156,11 +1174,17 @@ export class EmployeeService {
         throw new Error('User not found');
       }
 
-      // Calculate days served based on join date (for daily accrual)
+      // Calculate days served within the current year only (not cumulative from join date)
+      // This ensures balance resets to zero at year-end (Dec 31) and is capped at totalDaysPerYear
       const joinDate = user.joinDate ? new Date(user.joinDate) : new Date(user.createdAt);
       const currentDate = new Date();
-      const daysServed = this.calculateDaysServed(joinDate, currentDate);
-      console.log('🔍 EmployeeService: Days served:', daysServed);
+      const startOfYear = new Date(currentYear, 0, 1);
+      
+      // Calculate days served from the later of: join date or start of year
+      // This ensures we only count days within the current year
+      const effectiveStartDate = joinDate > startOfYear ? joinDate : startOfYear;
+      const daysServedInYear = this.calculateDaysServed(effectiveStartDate, currentDate);
+      console.log('🔍 EmployeeService: Days served in year:', daysServedInYear);
 
       // Get leave balance from database
       const leaveBalance = await prisma.leaveBalance.findUnique({
@@ -1211,14 +1235,16 @@ export class EmployeeService {
         });
       }
 
-      // Create a map of leave types to their tenure-based max days
-      // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
+      // Create a map of leave types to their year-specific max days
+      // Calculate year-specific total: (totalDaysPerYear / 365) * daysServedInYear (daily accrual)
+      // IMPORTANT: Balance is capped at totalDaysPerYear and resets each year
       const policyMap = new Map<string, number>();
       leavePolicies.forEach(policy => {
         const dailyAccrual = policy.totalDaysPerYear / 365; // Daily accrual rate
-        const tenureBasedTotal = Math.round(dailyAccrual * daysServed * 100) / 100; // Round to 2 decimal places
-        policyMap.set(policy.leaveType, tenureBasedTotal);
-        console.log(`🔍 EmployeeService: ${policy.leaveType} - Policy: ${policy.totalDaysPerYear} days/year, Days served: ${daysServed}, Accrued: ${tenureBasedTotal} days`);
+        const accruedForYear = Math.round(dailyAccrual * daysServedInYear * 100) / 100;
+        const yearSpecificTotal = Math.min(accruedForYear, policy.totalDaysPerYear); // Cap at policy limit
+        policyMap.set(policy.leaveType, yearSpecificTotal);
+        console.log(`🔍 EmployeeService: ${policy.leaveType} - Policy: ${policy.totalDaysPerYear} days/year, Days served in year: ${daysServedInYear}, Accrued: ${yearSpecificTotal} days (capped at ${policy.totalDaysPerYear})`);
       });
 
       // Get all leave requests for the year (both approved and pending)
@@ -1858,6 +1884,8 @@ export class EmployeeService {
     employeeId: string;
     employeeName: string;
     employeeEmail: string;
+    employeeIdNumber?: string | null;
+    employeeType?: 'onshore' | 'offshore' | null;
     department: string | null;
     totalPaidDays: number;
     totalUnpaidDays: number;
@@ -1911,6 +1939,8 @@ export class EmployeeService {
               id: true,
               name: true,
               email: true,
+              employeeId: true,
+              employeeType: true,
               department: true,
               probationStatus: true,
               probationStartDate: true,
@@ -1951,6 +1981,8 @@ export class EmployeeService {
         employeeId: string;
         employeeName: string;
         employeeEmail: string;
+        employeeIdNumber?: string | null;
+        employeeType?: 'onshore' | 'offshore' | null;
         department: string | null;
         totalPaidDays: number;
         totalUnpaidDays: number;
@@ -1974,6 +2006,16 @@ export class EmployeeService {
         const requestStartDate = new Date(request.startDate);
         const requestEndDate = new Date(request.endDate);
         const employee = request.user;
+        
+        // Debug: Log the isPaid value from database
+        console.log('🔍 getPaidUnpaidLeaveStats: Processing request:', {
+          id: request.id,
+          leaveType: request.leaveType,
+          isPaid: request.isPaid,
+          isPaidType: typeof request.isPaid,
+          startDate: request.startDate,
+          endDate: request.endDate
+        });
         
         // Check if this leave overlaps with the selected year
         // A leave overlaps with the year if: startDate <= endOfYear AND endDate >= startOfYear
@@ -2009,39 +2051,65 @@ export class EmployeeService {
         let unpaidDays = 0;
         
         if (daysToCount > 0 && leaveOverlapsYear) {
-          unpaidDays = daysToCount;
+          // IMPORTANT: Respect the manually set isPaid status from the database
+          // When isPaid is explicitly set (true or false), use that value directly
+          // The isPaid field is the source of truth for manual overrides
           
-          // Check if leave period overlaps with probation period
-          // If ANY part of the leave falls within probation, it must be unpaid
-          const leaveOverlapsProbation = this.doesLeaveOverlapProbation(
-            requestStartDate,
-            requestEndDate,
-            employee.probationStatus,
-            employee.probationStartDate,
-            employee.probationEndDate
-          );
+          console.log('🔍 getPaidUnpaidLeaveStats: Calculating paid/unpaid for request:', {
+            id: request.id,
+            isPaid: request.isPaid,
+            daysToCount,
+            leaveOverlapsYear
+          });
           
-          if (leaveOverlapsProbation) {
-            // All leaves taken during probation period are unpaid
+          if (request.isPaid === false) {
+            // Explicitly set to unpaid - respect this manual setting completely
             paidDays = 0;
             unpaidDays = daysToCount;
-          } else {
-            // Employee completed probation - calculate based on available balance at leave time
-            const balanceAtLeaveTime = await this.calculateBalanceAtDate(
-              employeeId,
-              request.leaveType,
-              requestStartDate
-            );
-            
-            // Split leave into paid and unpaid portions
-            // Paid = min(leave days, available balance)
-            // Unpaid = remaining days that exceed balance
-            paidDays = Math.min(daysToCount, Math.max(0, balanceAtLeaveTime));
-            unpaidDays = Math.max(0, daysToCount - balanceAtLeaveTime);
+            paidDays = Math.round(paidDays * 100) / 100;
+            unpaidDays = Math.round(unpaidDays * 100) / 100;
+          } else if (request.isPaid === true) {
+            // Explicitly set to paid - respect this manual setting completely
+            // Make it all paid regardless of probation or balance
+            paidDays = daysToCount;
+            unpaidDays = 0;
             
             // Round to 2 decimal places
             paidDays = Math.round(paidDays * 100) / 100;
             unpaidDays = Math.round(unpaidDays * 100) / 100;
+          } else {
+            // isPaid is null/undefined - auto-calculate based on probation and balance
+            unpaidDays = daysToCount;
+            
+            // Check if leave period overlaps with probation period
+            const leaveOverlapsProbation = this.doesLeaveOverlapProbation(
+              requestStartDate,
+              requestEndDate,
+              employee.probationStatus,
+              employee.probationStartDate,
+              employee.probationEndDate
+            );
+            
+            if (leaveOverlapsProbation) {
+              // All leaves taken during probation period are unpaid
+              paidDays = 0;
+              unpaidDays = daysToCount;
+            } else {
+              // Employee completed probation - calculate based on available balance at leave time
+              const balanceAtLeaveTime = await this.calculateBalanceAtDate(
+                employeeId,
+                request.leaveType,
+                requestStartDate
+              );
+              
+              // Split leave into paid and unpaid portions
+              paidDays = Math.min(daysToCount, Math.max(0, balanceAtLeaveTime));
+              unpaidDays = Math.max(0, daysToCount - balanceAtLeaveTime);
+              
+              // Round to 2 decimal places
+              paidDays = Math.round(paidDays * 100) / 100;
+              unpaidDays = Math.round(unpaidDays * 100) / 100;
+            }
           }
         }
 
@@ -2050,6 +2118,10 @@ export class EmployeeService {
             employeeId,
             employeeName: request.user.name,
             employeeEmail: request.user.email,
+            employeeIdNumber: request.user.employeeId || null,
+            employeeType: (request.user.employeeType === 'onshore' || request.user.employeeType === 'offshore') 
+              ? (request.user.employeeType as 'onshore' | 'offshore')
+              : null,
             department: request.user.department,
             totalPaidDays: 0,
             totalUnpaidDays: 0,
@@ -2089,15 +2161,25 @@ export class EmployeeService {
         // Add to leave requests (store calculated paid/unpaid for display)
         // IMPORTANT: Add ALL approved leave requests, even if they don't overlap with the selected year
         // This ensures all leaves are visible in the UI, with proper paid/unpaid status for the year
+        // Use the original isPaid from database, not recalculated value
+        const finalIsPaid = request.isPaid === true;
         stats.leaveRequests.push({
           id: request.id,
           leaveType: request.leaveType,
           startDate: request.startDate,
           endDate: request.endDate,
           totalDays: leaveOverlapsYear ? daysToCount : totalDays, // Show days in year if overlaps, otherwise full days
-          isPaid: paidDays > 0, // True if any paid days for the selected year, false if all unpaid or outside year
+          isPaid: finalIsPaid, // Use the isPaid value from database, not recalculated
           status: request.status,
           submittedAt: request.submittedAt
+        });
+        
+        console.log('🔍 getPaidUnpaidLeaveStats: Final calculation for request:', {
+          id: request.id,
+          originalIsPaid: request.isPaid,
+          calculatedPaidDays: paidDays,
+          calculatedUnpaidDays: unpaidDays,
+          finalIsPaid: finalIsPaid
         });
         
         console.log('🔍 getPaidUnpaidLeaveStats: Added leave request to stats:', {
@@ -2119,11 +2201,20 @@ export class EmployeeService {
 
       // Convert Map to Array and format byLeaveType
       const result = Array.from(employeeStatsMap.values()).map(stats => ({
-        ...stats,
+        employeeId: stats.employeeId,
+        employeeName: stats.employeeName,
+        employeeEmail: stats.employeeEmail,
+        employeeIdNumber: stats.employeeIdNumber || null,
+        employeeType: stats.employeeType || null,
+        department: stats.department,
+        totalPaidDays: stats.totalPaidDays,
+        totalUnpaidDays: stats.totalUnpaidDays,
+        totalDays: stats.totalDays,
         byLeaveType: Array.from(stats.byLeaveType.entries()).map(([leaveType, typeStats]) => ({
           leaveType,
           ...typeStats
-        }))
+        })),
+        leaveRequests: stats.leaveRequests
       }));
 
       // Sort by total days (descending)
@@ -2241,9 +2332,15 @@ export class EmployeeService {
         return 0;
       }
 
-      // Calculate days served up to the leave date (not current date)
+      // Calculate days served within the current year only (not cumulative from join date)
+      // This ensures balance resets to zero at year-end (Dec 31)
       const joinDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
-      const daysServed = this.calculateDaysServed(joinDate, asOfDate);
+      const startOfYear = new Date(year, 0, 1);
+      
+      // Calculate days served from the later of: join date or start of year
+      // This ensures we only count days within the current year
+      const effectiveStartDate = joinDate > startOfYear ? joinDate : startOfYear;
+      const daysServedInYear = this.calculateDaysServed(effectiveStartDate, asOfDate);
 
       // Get leave policy for this leave type and employeeType
       // Policies with employeeType null apply to both onshore and offshore
@@ -2267,17 +2364,22 @@ export class EmployeeService {
         return 0;
       }
 
-      // Calculate accrued balance up to the leave date
+      // Calculate accrued balance for the current year only
+      // Balance accrues daily within the year and resets to zero at year-end
       const dailyAccrual = leavePolicy.totalDaysPerYear / 365;
-      const accruedBalance = Math.round(dailyAccrual * daysServed * 100) / 100;
+      const accruedBalance = Math.round(dailyAccrual * daysServedInYear * 100) / 100;
 
-      // Get all approved leave requests of this type BEFORE the leave start date
-      const startOfYear = new Date(year, 0, 1);
-      const requestsBeforeLeave = await prisma.leaveRequest.findMany({
+      // Get all approved PAID leave requests of this type BEFORE the leave start date
+      // IMPORTANT: Only subtract PAID leaves from balance calculation
+      // Unpaid leaves (taken when balance was zero) should NOT reduce the balance
+      // This allows future leaves to use accrued balance even if previous leaves were unpaid
+      // Only count leaves within the current year (balance resets at year-end)
+      const paidRequestsBeforeLeave = await prisma.leaveRequest.findMany({
         where: {
           userId: employeeId,
           leaveType: leaveType as any, // Cast to Prisma enum type
           status: 'approved',
+          isPaid: true, // Only count paid leaves
           startDate: {
             gte: startOfYear,
             lt: asOfDate // Only leaves that started before this leave
@@ -2288,12 +2390,12 @@ export class EmployeeService {
         }
       });
 
-      // Calculate used days before this leave
-      const usedDays = requestsBeforeLeave.reduce((sum, req) => {
+      // Calculate used days from PAID leaves only
+      const usedDays = paidRequestsBeforeLeave.reduce((sum, req) => {
         return sum + parseFloat(req.totalDays.toString());
       }, 0);
 
-      // Available balance = accrued - used
+      // Available balance = accrued - used (only from paid leaves)
       const availableBalance = Math.max(0, accruedBalance - usedDays);
       
       return Math.round(availableBalance * 100) / 100;
@@ -2347,6 +2449,7 @@ export class EmployeeService {
     employeeId: string;
     employeeName: string;
     employeeEmail: string;
+    employeeIdNumber?: string | null;
     department: string | null;
     monthlyStats: Array<{
       month: number;
@@ -2404,6 +2507,8 @@ export class EmployeeService {
               id: true,
               name: true,
               email: true,
+              employeeId: true,
+              employeeType: true,
               department: true,
               probationStatus: true,
               probationStartDate: true,
@@ -2435,6 +2540,8 @@ export class EmployeeService {
         employeeId: string;
         employeeName: string;
         employeeEmail: string;
+        employeeIdNumber?: string | null;
+        employeeType?: 'onshore' | 'offshore' | null;
         department: string | null;
         monthlyStats: Map<number, { paidDays: number; unpaidDays: number; totalDays: number }>;
       }>();
@@ -2462,6 +2569,8 @@ export class EmployeeService {
               id: true,
               name: true,
               email: true,
+              employeeId: true,
+              employeeType: true,
               department: true,
               probationStatus: true,
               probationStartDate: true,
@@ -2495,6 +2604,8 @@ export class EmployeeService {
             id: true,
             name: true,
             email: true,
+            employeeId: true,
+            employeeType: true,
             department: true,
             probationStatus: true,
             probationStartDate: true,
@@ -2521,6 +2632,7 @@ export class EmployeeService {
           employeeId,
           employeeName: user.name,
           employeeEmail: user.email,
+          employeeIdNumber: user.employeeId || null,
           department: user.department,
           monthlyStats
         });
@@ -2581,36 +2693,61 @@ export class EmployeeService {
         for (const [month, daysInMonth] of sortedMonths) {
           if (month < 1 || month > 12) continue;
 
-          // Check if employee was in probation during this month
-          const monthStart = new Date(year, month - 1, 1);
-          const monthEnd = new Date(year, month, 0, 23, 59, 59);
-          const wasInProbation = this.wasEmployeeInProbation(employee, monthStart) ||
-                                this.wasEmployeeInProbation(employee, monthEnd);
-
+          // IMPORTANT: Respect the manually set isPaid status from the database
+          // When isPaid is explicitly set, use that value directly
           let paidDays = 0;
           let unpaidDays = daysInMonth;
 
-          if (!wasInProbation) {
-            // Calculate balance at the start of the month (before this leave)
+          if (request.isPaid === false) {
+            // Explicitly set to unpaid - respect this manual setting completely
+            paidDays = 0;
+            unpaidDays = daysInMonth;
+            runningBalance = 0; // No balance used
+          } else if (request.isPaid === true) {
+            // Explicitly set to paid - respect this manual setting completely
+            // Make it all paid regardless of probation
+            paidDays = daysInMonth;
+            unpaidDays = 0;
+            // Update running balance (subtract the days used)
+            const monthStart = new Date(year, month - 1, 1);
             const balanceAtMonthStart = await this.calculateBalanceAtDate(
               employeeId,
               request.leaveType,
               monthStart
             );
-
-            // Use the running balance if we've already processed earlier months of this leave
-            // Otherwise use the calculated balance
             const availableBalance = runningBalance > 0 ? runningBalance : balanceAtMonthStart;
-
-            // Split into paid and unpaid
-            paidDays = Math.min(daysInMonth, Math.max(0, availableBalance));
-            unpaidDays = Math.max(0, daysInMonth - availableBalance);
-
-            // Update running balance for next month
             runningBalance = Math.max(0, availableBalance - daysInMonth);
           } else {
-            // All unpaid during probation
-            runningBalance = 0;
+            // isPaid is null/undefined - auto-calculate based on probation and balance
+            const monthStart = new Date(year, month - 1, 1);
+            const monthEnd = new Date(year, month, 0, 23, 59, 59);
+            const wasInProbation = this.wasEmployeeInProbation(employee, monthStart) ||
+                                  this.wasEmployeeInProbation(employee, monthEnd);
+
+            if (wasInProbation) {
+              // All unpaid during probation
+              paidDays = 0;
+              unpaidDays = daysInMonth;
+              runningBalance = 0;
+            } else {
+              // Calculate balance at the start of the month (before this leave)
+              const balanceAtMonthStart = await this.calculateBalanceAtDate(
+                employeeId,
+                request.leaveType,
+                monthStart
+              );
+
+              // Use the running balance if we've already processed earlier months of this leave
+              // Otherwise use the calculated balance
+              const availableBalance = runningBalance > 0 ? runningBalance : balanceAtMonthStart;
+
+              // Split into paid and unpaid
+              paidDays = Math.min(daysInMonth, Math.max(0, availableBalance));
+              unpaidDays = Math.max(0, daysInMonth - availableBalance);
+
+              // Update running balance for next month
+              runningBalance = Math.max(0, availableBalance - daysInMonth);
+            }
           }
 
           // Round to 2 decimal places
@@ -2646,7 +2783,12 @@ export class EmployeeService {
         }), { paidDays: 0, unpaidDays: 0, totalDays: 0 });
 
         return {
-          ...stats,
+          employeeId: stats.employeeId,
+          employeeName: stats.employeeName,
+          employeeEmail: stats.employeeEmail,
+          employeeIdNumber: stats.employeeIdNumber || null,
+          employeeType: stats.employeeType || null,
+          department: stats.department,
           monthlyStats: monthlyStatsArray,
           yearlyTotal
         };

@@ -161,6 +161,72 @@ export class LeaveRequestController {
   }
 
   /**
+   * Update leave request paid/unpaid status
+   */
+  static async updateLeaveRequestPaidStatus(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { isPaid, comments } = req.body;
+      const reviewerId = (req as any).user?.id;
+
+      if (!id) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Leave request ID is required',
+          error: 'Missing leave request ID'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (typeof isPaid !== 'boolean') {
+        const response: ApiResponse = {
+          success: false,
+          message: 'isPaid must be a boolean value',
+          error: 'Invalid isPaid value'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      if (!reviewerId) {
+        const response: ApiResponse = {
+          success: false,
+          message: 'Reviewer ID is required',
+          error: 'Missing reviewer information'
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      const leaveRequest = await LeaveRequestService.updateLeaveRequestPaidStatus(
+        id,
+        isPaid,
+        reviewerId,
+        comments
+      );
+
+      const response: ApiResponse = {
+        success: true,
+        message: `Leave request updated to ${isPaid ? 'paid' : 'unpaid'} successfully`,
+        data: leaveRequest
+      };
+
+      res.status(200).json(response);
+    } catch (error) {
+      console.error('Error in updateLeaveRequestPaidStatus:', error);
+      
+      const response: ApiResponse = {
+        success: false,
+        message: 'Failed to update leave request paid status',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+
+      res.status(400).json(response);
+    }
+  }
+
+  /**
    * Bulk update leave requests
    */
   static async bulkUpdateLeaveRequests(req: Request, res: Response): Promise<void> {

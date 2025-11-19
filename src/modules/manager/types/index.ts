@@ -81,6 +81,7 @@ export interface TeamMember {
   status: 'active' | 'on-leave' | 'offline';
   joinDate: Date;
   lastLogin?: Date;
+  employeeId?: string;
   leaveBalance: LeaveBalance;
   avatar?: string;
   bio?: string;

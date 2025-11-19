@@ -75,6 +75,7 @@ export class LeaveRequestService {
               id: true,
               name: true,
               email: true,
+              employeeId: true,
               department: true,
               profilePicture: true,
               employeeType: true
@@ -101,6 +102,7 @@ export class LeaveRequestService {
           id: request.user.id,
           name: request.user.name,
           email: request.user.email,
+          employeeId: request.user.employeeId || undefined,
           department: request.user.department || 'Unassigned',
           position: 'Employee', // Not in schema
           avatar: request.user.profilePicture || undefined,
@@ -301,6 +303,94 @@ export class LeaveRequestService {
     } catch (error) {
       console.error('Error updating leave request status:', error);
       throw new Error('Failed to update leave request status');
+    }
+  }
+
+  /**
+   * Update leave request paid/unpaid status
+   */
+  static async updateLeaveRequestPaidStatus(
+    id: string,
+    isPaid: boolean,
+    reviewerId: string,
+    comments?: string
+  ): Promise<LeaveRequest> {
+    try {
+      // Get the existing request to check if it's approved
+      const existingRequest = await prisma.leaveRequest.findUnique({
+        where: { id }
+      });
+
+      if (!existingRequest) {
+        throw new Error('Leave request not found');
+      }
+
+      if (existingRequest.status !== 'approved') {
+        throw new Error('Can only update paid/unpaid status for approved leave requests');
+      }
+
+      const request = await prisma.leaveRequest.update({
+        where: { id },
+        data: {
+          isPaid,
+          comments: comments || existingRequest.comments,
+          updatedAt: new Date()
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              department: true,
+              profilePicture: true
+            }
+          },
+          approver: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      });
+
+      return {
+        id: request.id,
+        userId: request.userId,
+        userName: request.user.name,
+        userEmail: request.user.email,
+        department: request.user.department || 'Unassigned',
+        employeeId: request.userId,
+        employee: {
+          id: request.user.id,
+          name: request.user.name,
+          email: request.user.email,
+          department: request.user.department || 'Unassigned',
+          position: 'Employee',
+          avatar: request.user.profilePicture || undefined
+        },
+        leaveType: request.leaveType,
+        startDate: request.startDate,
+        endDate: request.endDate,
+        totalDays: Number(request.totalDays),
+        reason: request.reason,
+        status: request.status as 'pending' | 'approved' | 'rejected',
+        isPaid: request.isPaid,
+        isHalfDay: request.isHalfDay || false,
+        halfDayPeriod: request.halfDayPeriod || undefined,
+        emergencyContact: undefined,
+        workHandover: undefined,
+        submittedAt: request.submittedAt,
+        approvedAt: request.approvedAt || undefined,
+        approvedBy: request.approvedBy || undefined,
+        comments: request.comments || undefined,
+        createdAt: request.createdAt,
+        updatedAt: request.updatedAt
+      };
+    } catch (error) {
+      console.error('Error updating leave request paid status:', error);
+      throw new Error('Failed to update leave request paid status');
     }
   }
 

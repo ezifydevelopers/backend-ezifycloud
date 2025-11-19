@@ -30,6 +30,7 @@ export const updateEmployeeSchema = Joi.object({
   name: Joi.string().min(2).max(100).optional(),
   email: Joi.string().email().optional(),
   phone: Joi.string().optional().allow(''),
+  employeeId: Joi.string().min(3).max(20).regex(/^[A-Za-z0-9_-]+$/).optional().allow(null, ''),
   department: Joi.string().optional(),
   position: Joi.string().optional(),
   role: Joi.string().valid('admin', 'manager', 'employee').optional(),
@@ -83,6 +84,11 @@ export const leaveRequestFiltersSchema = Joi.object({
 
 export const updateLeaveRequestStatusSchema = Joi.object({
   status: Joi.string().valid('approved', 'rejected').required(),
+  comments: Joi.string().optional().allow(''),
+});
+
+export const updateLeaveRequestPaidStatusSchema = Joi.object({
+  isPaid: Joi.boolean().required(),
   comments: Joi.string().optional().allow(''),
 });
 
@@ -315,6 +321,7 @@ export const adminSchemas = {
   adjustLeaveBalanceSchema: adjustLeaveBalanceSchema,
   leaveRequestFilters: leaveRequestFiltersSchema,
   updateLeaveRequestStatus: updateLeaveRequestStatusSchema,
+  updateLeaveRequestPaidStatus: updateLeaveRequestPaidStatusSchema,
   bulkUpdateLeaveRequests: bulkUpdateLeaveRequestsSchema,
   leavePolicyFilters: leavePolicyFiltersSchema,
   createLeavePolicy: createLeavePolicySchema,

@@ -310,7 +310,10 @@ export class LeaveRequestService {
               id: true,
               name: true,
               email: true,
-              department: true
+              employeeId: true,
+              department: true,
+              profilePicture: true,
+              employeeType: true
             }
           }
         }
@@ -356,7 +359,12 @@ export class LeaveRequestService {
           id: request.user.id,
           name: request.user.name,
           email: request.user.email,
-          department: request.user.department
+          employeeId: request.user.employeeId || undefined,
+          department: request.user.department,
+          profilePicture: request.user.profilePicture || undefined,
+          employeeType: (request.user.employeeType === 'onshore' || request.user.employeeType === 'offshore') 
+            ? (request.user.employeeType as 'onshore' | 'offshore')
+            : (request.user.employeeType === null ? null : undefined)
         } : undefined
       }));
 

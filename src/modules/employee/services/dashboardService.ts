@@ -339,10 +339,16 @@ export class EmployeeDashboardService {
         };
       }
 
-      // Calculate days served (for daily accrual)
+      // Calculate days served within the current year only (not cumulative from join date)
+      // This ensures balance resets to zero at year-end (Dec 31) and is capped at totalDaysPerYear
       const empStartDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
       const currentDate = new Date();
-      const daysServed = this.calculateDaysServed(empStartDate, currentDate);
+      const startOfYear = new Date(currentYear, 0, 1);
+      
+      // Calculate days served from the later of: join date or start of year
+      // This ensures we only count days within the current year
+      const effectiveStartDate = empStartDate > startOfYear ? empStartDate : startOfYear;
+      const daysServedInYear = this.calculateDaysServed(effectiveStartDate, currentDate);
 
       // Get leave balance from database
       const leaveBalance = await prisma.leaveBalance.findUnique({
@@ -428,12 +434,14 @@ export class EmployeeDashboardService {
       }
 
       // Create a map of leave types to their tenure-based max days
-      // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
+      // Calculate year-specific total: (totalDaysPerYear / 365) * daysServedInYear (daily accrual)
+      // IMPORTANT: Balance is capped at totalDaysPerYear and resets each year
       const policyMap = new Map<string, number>();
       leavePolicies.forEach(policy => {
         const dailyAccrual = policy.totalDaysPerYear / 365; // Daily accrual rate
-        const tenureBasedTotal = Math.round(dailyAccrual * daysServed * 100) / 100;
-        policyMap.set(policy.leaveType, tenureBasedTotal);
+        const accruedForYear = Math.round(dailyAccrual * daysServedInYear * 100) / 100;
+        const yearSpecificTotal = Math.min(accruedForYear, policy.totalDaysPerYear); // Cap at policy limit
+        policyMap.set(policy.leaveType, yearSpecificTotal);
       });
 
       // Get pending leave requests
@@ -496,24 +504,24 @@ export class EmployeeDashboardService {
       let totalPendingDays = 0;
 
       // Only process leave types that have active policies
-      for (const [leaveType, tenureBasedTotal] of policyMap) {
+      for (const [leaveType, yearSpecificTotal] of policyMap) {
         // Use calculated approved days instead of database values
         const used = (approvedDays as any)[leaveType] || 0;
         const pending = (pendingDays as any)[leaveType] || 0;
         
         // Calculate remaining days accounting for pending requests
-        const actualRemaining = Math.max(0, tenureBasedTotal - used - pending);
+        const actualRemaining = Math.max(0, yearSpecificTotal - used - pending);
         
-        // Use the tenure-based total as the authoritative source
+        // Use the year-specific total as the authoritative source
         dynamicLeaveBalance[leaveType] = {
-          total: tenureBasedTotal, // Use tenure-based total
+          total: yearSpecificTotal, // Use year-specific total (capped at totalDaysPerYear)
           used: used, // Use calculated approved days
           remaining: actualRemaining, // Total - Used - Pending
           pending: pending,
-          utilizationRate: tenureBasedTotal > 0 ? (used / tenureBasedTotal) * 100 : 0
+          utilizationRate: yearSpecificTotal > 0 ? (used / yearSpecificTotal) * 100 : 0
         };
 
-        totalDays += tenureBasedTotal;
+        totalDays += yearSpecificTotal;
         usedDays += used;
         remainingDays += actualRemaining;
         totalPendingDays += pending;

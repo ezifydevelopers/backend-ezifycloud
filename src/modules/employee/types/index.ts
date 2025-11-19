@@ -303,6 +303,7 @@ export interface EmployeeProfile {
   bio?: string;
   address?: string;
   emergencyContact?: string;
+  employeeId?: string;
   preferences: UserPreferences;
   isActive: boolean;
   createdAt: Date;

@@ -157,6 +157,12 @@ router.post('/approvals/process',
   ApprovalController.processApprovalAction
 );
 
+router.patch('/approvals/:id/paid-status', 
+  validateParams(managerSchemas.idParam),
+  validateRequest(managerSchemas.updateLeaveRequestPaidStatus),
+  ApprovalController.updateLeaveRequestPaidStatus
+);
+
 router.post('/approvals/bulk-process', 
   validateRequest(managerSchemas.bulkApprovalAction),
   ApprovalController.processBulkApprovalAction

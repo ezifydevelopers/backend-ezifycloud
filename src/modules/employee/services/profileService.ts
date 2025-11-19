@@ -56,6 +56,7 @@ export class ProfileService {
         bio: (employee as any).bio || undefined,
         address: (employee as any).address || undefined,
         emergencyContact: (employee as any).emergencyContact || undefined,
+        employeeId: employee.employeeId || undefined,
         preferences,
         isActive: employee.isActive,
         createdAt: employee.createdAt,

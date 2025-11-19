@@ -1,0 +1,2111 @@
+{
+	"info": {
+		"_postman_id": "ezify-cloud-api-collection",
+		"name": "Ezify Cloud API Collection",
+		"description": "Complete API collection for Ezify Cloud Leave Management System",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "ezify-cloud"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": ["{{base_url}}"],
+							"path": ["health"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@ezify.com\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"employee\",\n  \"department\": \"Engineering\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/register",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "register"]
+						}
+					}
+				},
+				{
+					"name": "Forgot Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"user@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/forgot-password",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "forgot-password"]
+						}
+					}
+				},
+				{
+					"name": "Reset Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"reset-token-here\",\n  \"password\": \"newpassword123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/reset-password",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "reset-password"]
+						}
+					}
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"currentPassword\": \"oldpassword123\",\n  \"newPassword\": \"newpassword123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/change-password",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "change-password"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Get Current User Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update User Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Name\",\n  \"phone\": \"+1234567890\",\n  \"bio\": \"Updated bio\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Get All Users (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users"]
+						}
+					}
+				},
+				{
+					"name": "Get User By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "user-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create User (Admin)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New User\",\n  \"email\": \"newuser@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"employee\",\n  \"department\": \"Engineering\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users"]
+						}
+					}
+				},
+				{
+					"name": "Update User (Admin)",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Name\",\n  \"department\": \"Updated Department\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "user-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete User (Admin)",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "user-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Toggle User Status (Admin)",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"isActive\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/:id/toggle-status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id", "toggle-status"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "user-uuid-here"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin - Dashboard",
+			"item": [
+				{
+					"name": "Get Dashboard Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/dashboard/stats?startDate=2024-01-01&endDate=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "dashboard", "stats"],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Quick Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/dashboard/quick-stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "dashboard", "quick-stats"]
+						}
+					}
+				},
+				{
+					"name": "Get Department Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/dashboard/department-stats?startDate=2024-01-01&endDate=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "dashboard", "department-stats"],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Recent Activities",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/dashboard/recent-activities",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "dashboard", "recent-activities"]
+						}
+					}
+				},
+				{
+					"name": "Get Monthly Leave Trend",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/dashboard/monthly-trend?startDate=2024-01-01&endDate=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "dashboard", "monthly-trend"],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get System Overview",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/dashboard/overview",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "dashboard", "overview"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin - Employees",
+			"item": [
+				{
+					"name": "Get Employees",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees?page=1&limit=10&search=&department=&role=&status=active",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "department",
+									"value": ""
+								},
+								{
+									"key": "role",
+									"value": ""
+								},
+								{
+									"key": "status",
+									"value": "active"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Employee By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "employee-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Employee",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"employee\",\n  \"department\": \"Engineering\",\n  \"managerId\": \"manager-uuid-here\",\n  \"employeeType\": \"onshore\",\n  \"region\": \"US\",\n  \"timezone\": \"America/New_York\",\n  \"joinDate\": \"2024-01-01\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees"]
+						}
+					}
+				},
+				{
+					"name": "Update Employee",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Name\",\n  \"department\": \"Updated Department\",\n  \"employeeType\": \"offshore\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "employee-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Employee",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "employee-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Permanently Delete Employee",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees/:id/permanent",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees", ":id", "permanent"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "employee-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Paid/Unpaid Leave Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees/paid-unpaid-leaves?year=2024&department=&employeeId=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees", "paid-unpaid-leaves"],
+							"query": [
+								{
+									"key": "year",
+									"value": "2024"
+								},
+								{
+									"key": "department",
+									"value": ""
+								},
+								{
+									"key": "employeeId",
+									"value": ""
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Employee Leave Balance",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees/:id/leave-balance",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees", ":id", "leave-balance"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "employee-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Adjust Employee Leave Balance",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"leaveType\": \"annual\",\n  \"adjustment\": 5,\n  \"reason\": \"Manual adjustment\",\n  \"year\": 2024\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/employees/:id/leave-balance/adjust",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "employees", ":id", "leave-balance", "adjust"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "employee-uuid-here"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin - Leave Policies",
+			"item": [
+				{
+					"name": "Get Leave Policies",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/policies?page=1&limit=10&leaveType=&employeeType=&isActive=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "policies"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "leaveType",
+									"value": ""
+								},
+								{
+									"key": "employeeType",
+									"value": ""
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Leave Policy By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/policies/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "policies", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "policy-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Leave Policy",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"leaveType\": \"annual\",\n  \"totalDaysPerYear\": 25,\n  \"isPaid\": true,\n  \"canCarryForward\": false,\n  \"requiresApproval\": true,\n  \"allowHalfDay\": true,\n  \"description\": \"Annual leave policy\",\n  \"employeeType\": \"onshore\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/policies",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "policies"]
+						}
+					}
+				},
+				{
+					"name": "Update Leave Policy",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"totalDaysPerYear\": 30,\n  \"canCarryForward\": true,\n  \"maxCarryForwardDays\": 5\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/policies/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "policies", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "policy-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Leave Policy",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/policies/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "policies", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "policy-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Leave Policy Types",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/policies/types?employeeType=onshore",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "policies", "types"],
+							"query": [
+								{
+									"key": "employeeType",
+									"value": "onshore"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Leave Policy Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/policies/stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "policies", "stats"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin - Leave Requests",
+			"item": [
+				{
+					"name": "Get Leave Requests",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/leave-requests?page=1&limit=10&status=&leaveType=&startDate=&endDate=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "leave-requests"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "status",
+									"value": ""
+								},
+								{
+									"key": "leaveType",
+									"value": ""
+								},
+								{
+									"key": "startDate",
+									"value": ""
+								},
+								{
+									"key": "endDate",
+									"value": ""
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Leave Request By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/leave-requests/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "leave-requests", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "leave-request-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Leave Request Status",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"approved\",\n  \"rejectedReason\": \"\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/leave-requests/:id/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "leave-requests", ":id", "status"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "leave-request-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Leave Request Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/leave-requests/stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "leave-requests", "stats"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin - Holidays",
+			"item": [
+				{
+					"name": "Get Holidays",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/holidays?year=2024&type=&isActive=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "holidays"],
+							"query": [
+								{
+									"key": "year",
+									"value": "2024"
+								},
+								{
+									"key": "type",
+									"value": ""
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Holiday",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New Year\",\n  \"description\": \"New Year Holiday\",\n  \"date\": \"2024-01-01\",\n  \"type\": \"public\",\n  \"isRecurring\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/holidays",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "holidays"]
+						}
+					}
+				},
+				{
+					"name": "Update Holiday",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Holiday Name\",\n  \"isActive\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/holidays/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "holidays", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "holiday-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Holiday",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/holidays/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "admin", "holidays", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "holiday-uuid-here"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Employee - Dashboard",
+			"item": [
+				{
+					"name": "Get Dashboard Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/dashboard/stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "dashboard", "stats"]
+						}
+					}
+				},
+				{
+					"name": "Get Personal Info",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/dashboard/personal-info",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "dashboard", "personal-info"]
+						}
+					}
+				},
+				{
+					"name": "Get Leave Balance",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/dashboard/leave-balance",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "dashboard", "leave-balance"]
+						}
+					}
+				},
+				{
+					"name": "Get Recent Leave Requests",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/dashboard/recent-requests",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "dashboard", "recent-requests"]
+						}
+					}
+				},
+				{
+					"name": "Get Upcoming Holidays",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/dashboard/upcoming-holidays",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "dashboard", "upcoming-holidays"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Employee - Leave Requests",
+			"item": [
+				{
+					"name": "Create Leave Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"leaveType\": \"annual\",\n  \"startDate\": \"2024-06-01\",\n  \"endDate\": \"2024-06-05\",\n  \"reason\": \"Vacation\",\n  \"isHalfDay\": false,\n  \"halfDayPeriod\": null\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/employee/leave-requests",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "leave-requests"]
+						}
+					}
+				},
+				{
+					"name": "Get Leave Requests",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/leave-requests",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "leave-requests"]
+						}
+					}
+				},
+				{
+					"name": "Get Leave Request By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/leave-requests/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "leave-requests", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "leave-request-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Leave Request",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"startDate\": \"2024-06-02\",\n  \"endDate\": \"2024-06-06\",\n  \"reason\": \"Updated reason\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/employee/leave-requests/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "leave-requests", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "leave-request-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Cancel Leave Request",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/leave-requests/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "leave-requests", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "leave-request-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Leave History",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/leave-history",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "leave-history"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Employee - Profile",
+			"item": [
+				{
+					"name": "Get Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/employee/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Name\",\n  \"phone\": \"+1234567890\",\n  \"bio\": \"Updated bio\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/employee/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update Password",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"currentPassword\": \"oldpassword123\",\n  \"newPassword\": \"newpassword123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/employee/profile/password",
+							"host": ["{{base_url}}"],
+							"path": ["api", "employee", "profile", "password"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Manager - Dashboard",
+			"item": [
+				{
+					"name": "Get Dashboard Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/dashboard/stats?startDate=2024-01-01&endDate=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "dashboard", "stats"],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-12-31"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Quick Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/dashboard/quick-stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "dashboard", "quick-stats"]
+						}
+					}
+				},
+				{
+					"name": "Get Team Performance",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/dashboard/team-performance",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "dashboard", "team-performance"]
+						}
+					}
+				},
+				{
+					"name": "Get Upcoming Leaves",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/dashboard/upcoming-leaves",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "dashboard", "upcoming-leaves"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Manager - Approvals",
+			"item": [
+				{
+					"name": "Get Leave Approvals",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/approvals?status=pending&page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "approvals"],
+							"query": [
+								{
+									"key": "status",
+									"value": "pending"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Process Approval",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"requestId\": \"leave-request-uuid-here\",\n  \"action\": \"approve\",\n  \"comments\": \"Approved\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/manager/approvals/process",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "approvals", "process"]
+						}
+					}
+				},
+				{
+					"name": "Get Pending Count",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/approvals/pending-count",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "approvals", "pending-count"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Manager - Team",
+			"item": [
+				{
+					"name": "Get Team Members",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/team/members?page=1&limit=10&search=&department=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "team", "members"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "department",
+									"value": ""
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Team Member By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/team/members/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "team", "members", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "team-member-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Team Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/manager/team/stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "manager", "team", "stats"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Workspaces",
+			"item": [
+				{
+					"name": "Create Workspace",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"My Workspace\",\n  \"description\": \"Workspace description\",\n  \"slug\": \"my-workspace\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/workspaces",
+							"host": ["{{base_url}}"],
+							"path": ["api", "workspaces"]
+						}
+					}
+				},
+				{
+					"name": "Get User Workspaces",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/workspaces",
+							"host": ["{{base_url}}"],
+							"path": ["api", "workspaces"]
+						}
+					}
+				},
+				{
+					"name": "Get Workspace By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/workspaces/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "workspaces", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "workspace-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Workspace",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Workspace Name\",\n  \"description\": \"Updated description\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/workspaces/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "workspaces", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "workspace-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Workspace Members",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/workspaces/:id/members",
+							"host": ["{{base_url}}"],
+							"path": ["api", "workspaces", ":id", "members"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "workspace-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Invite Member",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"member@example.com\",\n  \"role\": \"member\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/workspaces/:id/members/invite",
+							"host": ["{{base_url}}"],
+							"path": ["api", "workspaces", ":id", "members", "invite"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "workspace-uuid-here"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Boards",
+			"item": [
+				{
+					"name": "Create Board",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"workspaceId\": \"workspace-uuid-here\",\n  \"name\": \"My Board\",\n  \"type\": \"invoices\",\n  \"description\": \"Board description\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/boards",
+							"host": ["{{base_url}}"],
+							"path": ["api", "boards"]
+						}
+					}
+				},
+				{
+					"name": "Get Workspace Boards",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/boards/workspace/:workspaceId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "boards", "workspace", ":workspaceId"],
+							"variable": [
+								{
+									"key": "workspaceId",
+									"value": "workspace-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Board By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/boards/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "boards", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "board-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Column",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Invoice Number\",\n  \"type\": \"AUTO_NUMBER\",\n  \"position\": 0,\n  \"settings\": {}\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/boards/:boardId/columns",
+							"host": ["{{base_url}}"],
+							"path": ["api", "boards", ":boardId", "columns"],
+							"variable": [
+								{
+									"key": "boardId",
+									"value": "board-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Item",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Invoice #001\",\n  \"status\": \"draft\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/boards/:boardId/items",
+							"host": ["{{base_url}}"],
+							"path": ["api", "boards", ":boardId", "items"],
+							"variable": [
+								{
+									"key": "boardId",
+									"value": "board-uuid-here"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Approvals",
+			"item": [
+				{
+					"name": "Request Approval",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/approvals/item/:itemId/request",
+							"host": ["{{base_url}}"],
+							"path": ["api", "approvals", "item", ":itemId", "request"],
+							"variable": [
+								{
+									"key": "itemId",
+									"value": "item-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Item Approvals",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/approvals/item/:itemId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "approvals", "item", ":itemId"],
+							"variable": [
+								{
+									"key": "itemId",
+									"value": "item-uuid-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get My Pending Approvals",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/approvals/pending",
+							"host": ["{{base_url}}"],
+							"path": ["api", "approvals", "pending"]
+						}
+					}
+				},
+				{
+					"name": "Update Approval (Approve/Reject)",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": \"approved\",\n  \"comments\": \"Looks good!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/approvals/:approvalId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "approvals", ":approvalId"],
+							"variable": [
+								{
+									"key": "approvalId",
+									"value": "approval-uuid-here"
+								}
+							]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:5000",
+			"type": "string"
+		},
+		{
+			"key": "auth_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+

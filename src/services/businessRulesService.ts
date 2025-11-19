@@ -395,16 +395,22 @@ export class BusinessRulesService {
         return {};
       }
 
-      // Calculate days served (for daily accrual)
+      // Calculate days served within the current year only (not cumulative from join date)
+      // This ensures balance resets to zero at year-end (Dec 31) and is capped at totalDaysPerYear
       const startDate = employee.joinDate ? new Date(employee.joinDate) : new Date(employee.createdAt);
       const currentDate = new Date();
-      const daysServed = this.calculateDaysServed(startDate, currentDate);
+      const startOfYear = new Date(year, 0, 1);
+      
+      // Calculate days served from the later of: join date or start of year
+      // This ensures we only count days within the current year
+      const effectiveStartDate = startDate > startOfYear ? startDate : startOfYear;
+      const daysServedInYear = this.calculateDaysServed(effectiveStartDate, currentDate);
 
-      // Calculate probation period
+      // Calculate probation period (for probation logic, but balance is still year-specific)
       const isInProbation = employee.probationStatus === 'active' || employee.probationStatus === 'extended';
       const probationCompleted = employee.probationStatus === 'completed' && employee.probationCompletedAt;
       
-      // Calculate days served during probation vs after probation
+      // Calculate days served during probation vs after probation (within current year only)
       let daysServedDuringProbation = 0;
       let daysServedAfterProbation = 0;
       
@@ -415,24 +421,30 @@ export class BusinessRulesService {
           ? new Date(employee.probationCompletedAt) 
           : null;
         
-        // Days served during probation (from start to end or completion, whichever is earlier)
+        // Calculate probation days within the current year only
+        const probationStartInYear = probationStart > startOfYear ? probationStart : (probationStart < startOfYear ? startOfYear : probationStart);
         const probationEndDate = probationCompletedDate || probationEnd;
-        const probationDays = this.calculateDaysServed(
-          probationStart < startDate ? startDate : probationStart,
-          probationEndDate < currentDate ? probationEndDate : currentDate
-        );
-        daysServedDuringProbation = Math.max(0, probationDays);
+        const probationEndInYear = probationEndDate < currentDate ? probationEndDate : currentDate;
         
-        // Days served after probation (only if probation is completed)
-        if (probationCompleted && probationCompletedDate) {
+        if (probationStartInYear <= probationEndInYear) {
+          const probationDays = this.calculateDaysServed(
+            probationStartInYear > effectiveStartDate ? probationStartInYear : effectiveStartDate,
+            probationEndInYear
+          );
+          daysServedDuringProbation = Math.max(0, probationDays);
+        }
+        
+        // Days served after probation (only if probation is completed, within current year)
+        if (probationCompleted && probationCompletedDate && probationCompletedDate < currentDate) {
+          const afterProbationStart = probationCompletedDate > startOfYear ? probationCompletedDate : startOfYear;
           daysServedAfterProbation = this.calculateDaysServed(
-            probationCompletedDate,
+            afterProbationStart > effectiveStartDate ? afterProbationStart : effectiveStartDate,
             currentDate
           );
         }
       } else {
-        // If no probation dates, all days are considered "after probation" (for employees without probation)
-        daysServedAfterProbation = daysServed;
+        // If no probation dates, all days in year are considered "after probation"
+        daysServedAfterProbation = daysServedInYear;
       }
 
       // Get active leave policies filtered by employeeType with fallback
@@ -491,13 +503,15 @@ export class BusinessRulesService {
 
       const policyMap = new Map<string, { total: number; probationEarned: number; available: number }>();
       policies.forEach(policy => {
-        // Calculate tenure-based total: (totalDaysPerYear / 365) * daysServed (daily accrual)
+        // Calculate year-specific balance: (totalDaysPerYear / 365) * daysServedInYear (daily accrual)
+        // IMPORTANT: Balance is capped at totalDaysPerYear and resets each year
         const dailyAccrual = policy.totalDaysPerYear / 365; // Daily accrual rate
         
-        // Total leaves earned (during probation + after probation)
-        const totalEarned = Math.round(dailyAccrual * daysServed * 100) / 100;
+        // Total leaves earned for the current year only (capped at totalDaysPerYear)
+        const accruedForYear = Math.round(dailyAccrual * daysServedInYear * 100) / 100;
+        const totalEarned = Math.min(accruedForYear, policy.totalDaysPerYear); // Cap at policy limit
         
-        // Leaves earned during probation (locked until probation completion)
+        // Leaves earned during probation (within current year, locked until probation completion)
         const probationEarned = Math.round(dailyAccrual * daysServedDuringProbation * 100) / 100;
         
         // Available leaves (only after probation completion)
@@ -517,14 +531,14 @@ export class BusinessRulesService {
         }
         
         policyMap.set(policy.leaveType, {
-          total: totalEarned,
+          total: totalEarned, // Year-specific total, capped at totalDaysPerYear
           probationEarned,
           available: Math.max(0, available)
         });
       });
 
       // Get leave requests for the year
-      const startOfYear = new Date(year, 0, 1);
+      // Reuse startOfYear declared earlier
       const endOfYear = new Date(year, 11, 31);
 
       const requests = await prisma.leaveRequest.findMany({

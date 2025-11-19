@@ -42,6 +42,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
         employeeType: true,
         region: true,
         timezone: true,
+        employeeId: true,
         createdAt: true,
         updatedAt: true
       }
@@ -182,7 +183,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const { name, email, password, role, department, manager_id, employeeType, region, timezone } = value;
+    const { name, email, password, role, department, manager_id, employeeType, region, timezone, employeeId } = value;
 
     // Check if user already exists using Prisma
     const existingUser = await prisma.user.findUnique({
@@ -195,6 +196,21 @@ export const register = async (req: Request, res: Response, next: NextFunction):
         message: 'User with this email already exists'
       });
       return;
+    }
+
+    // Check if employeeId already exists (if provided)
+    if (employeeId) {
+      const existingEmployeeId = await prisma.user.findUnique({
+        where: { employeeId }
+      });
+
+      if (existingEmployeeId) {
+        res.status(409).json({
+          success: false,
+          message: 'Employee ID already exists. Please use a different Employee ID.'
+        });
+        return;
+      }
     }
 
     // Hash password
@@ -254,6 +270,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       data: {
         name,
         email,
+        employeeId: value.employeeId || null,
         passwordHash,
         role,
         department,
@@ -273,6 +290,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
         id: true,
         email: true,
         name: true,
+        employeeId: true,
         role: true,
         department: true,
         managerId: true,

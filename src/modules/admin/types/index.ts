@@ -72,6 +72,7 @@ export interface Employee {
   address?: string;
   emergencyContact?: string;
   emergencyPhone?: string;
+  employeeId?: string;
   joinDate: Date;
   lastLogin?: Date;
   leaveBalance?: LeaveBalance[];

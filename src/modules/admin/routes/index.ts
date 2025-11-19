@@ -231,6 +231,12 @@ router.patch('/leave-requests/:id/status',
   LeaveRequestController.updateLeaveRequestStatus
 );
 
+router.patch('/leave-requests/:id/paid-status', 
+  validateParams(adminSchemas.idParam),
+  validateRequest(adminSchemas.updateLeaveRequestPaidStatus),
+  LeaveRequestController.updateLeaveRequestPaidStatus
+);
+
 router.patch('/leave-requests/bulk-update', 
   validateRequest(adminSchemas.bulkUpdateLeaveRequests),
   LeaveRequestController.bulkUpdateLeaveRequests

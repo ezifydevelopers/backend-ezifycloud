@@ -42,15 +42,43 @@ import customizationRoutes from './modules/customization/routes';
 const createApp = (): express.Application => {
   const app = express();
 
+  // CORS middleware - must be before other middleware to handle preflight requests
+  app.use(cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      const allowedOrigins = APP_CONFIG.SERVER.CORS_ORIGINS;
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        // In development, allow all origins
+        if (APP_CONFIG.SERVER.NODE_ENV === 'development') {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 86400 // 24 hours
+  }));
+
   // Security middleware
-  app.use(helmet());
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+  }));
   app.use(securityHeaders);
   app.use(requestId);
-  app.use(enforceHTTPS);
-  app.use(cors({
-    origin: APP_CONFIG.SERVER.CORS_ORIGINS,
-    credentials: true
-  }));
+  // Only enforce HTTPS in production
+  if (APP_CONFIG.SERVER.NODE_ENV === 'production') {
+    app.use(enforceHTTPS);
+  }
 
   // Rate limiting - Very lenient for development
   const limiter = rateLimit({

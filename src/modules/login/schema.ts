@@ -36,6 +36,17 @@ export const registerSchema = Joi.object({
       'string.email': 'Please provide a valid email address',
       'any.required': 'Email is required'
     }),
+  employeeId: Joi.string()
+    .min(3)
+    .max(20)
+    .optional()
+    .allow(null, '')
+    .pattern(/^[A-Za-z0-9_-]+$/)
+    .messages({
+      'string.min': 'Employee ID must be at least 3 characters long',
+      'string.max': 'Employee ID cannot exceed 20 characters',
+      'string.pattern.base': 'Employee ID can only contain letters, numbers, hyphens, and underscores'
+    }),
   password: Joi.string()
     .min(6)
     .pattern(new RegExp('^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])'))
